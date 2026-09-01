@@ -1,0 +1,486 @@
+{
+  "name": "Email Reply Monitoring (Sanitized)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c5e593ee-0da4-5d78-aeab-681a9c874b69",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_EMAIL_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "Email Conversation Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_outreach_status",
+              "keyValue": "sent"
+            },
+            {
+              "keyName": "email_conversation_status",
+              "condition": "neq",
+              "keyValue": "invalid_email"
+            },
+            {
+              "keyName": "email_conversation_status",
+              "condition": "neq",
+              "keyValue": "closed"
+            },
+            {
+              "keyName": "email_conversation_status",
+              "condition": "neq",
+              "keyValue": "rejected"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        112
+      ],
+      "id": "eb9cc25f-23c8-5bfb-8c7e-610f89052565",
+      "name": "Get row(s)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nfunction extractEmail(value) {\n  const text = String(value || \"\").trim();\n\n  const match = text.match(/<([^>]+)>/);\n  if (match) {\n    return match[1].trim().toLowerCase();\n  }\n\n  const match2 = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);\n  if (match2) {\n    return match2[0].trim().toLowerCase();\n  }\n\n  return \"\";\n}\n\nfor (const item of $input.all()) {\n\n  const data = item.json;\n\n  //----------------------------------------\n  // 基础信息\n  //----------------------------------------\n\n  const rowId = data.id;\n\n  const gmailMessageId =\n    String(data.gmail_message_id || \"\");\n\n  const gmailThreadId =\n    String(data.gmail_thread_id || data.threadId || \"\");\n\n  const lastMessageId =\n    String(data.email_last_message_id || \"\");\n\n  const snippet =\n    String(data.snippet || \"\").trim();\n\n  const text =\n    snippet.toLowerCase();\n\n  const customerEmail =\n    String(\n      data.email ||\n      data.customer_email ||\n      \"\"\n    ).toLowerCase();\n\n  const fromEmail =\n    extractEmail(data.From);\n\n  //----------------------------------------\n  // 是否新邮件\n  //----------------------------------------\n\n  const isNewMessage =\n    gmailMessageId !== \"\" &&\n    gmailMessageId !== lastMessageId;\n\n  //----------------------------------------\n  // 当前状态\n  //----------------------------------------\n\n  let conversationStatus =\n    data.email_conversation_status ||\n    \"waiting_reply\";\n\n  let deliveryStatus =\n    data.email_outreach_status ||\n    \"sent\";\n\n  let failureReason =\n    data.email_failure_reason ||\n    null;\n\n  let replyCount =\n    Number(data.email_reply_count || 0);\n\n  let lastReplyContent =\n    data.email_last_reply_content ||\n    null;\n\n  let lastReplyAt =\n    data.email_last_reply_at ||\n    null;\n\n  let conversationHistory =\n    data.email_conversation_history ||\n    \"\";\n\n  const messageTime =\n    data.internalDate\n      ? new Date(Number(data.internalDate)).toISOString()\n      : new Date().toISOString();\n\n  //----------------------------------------\n  // Bounce 判断\n  //----------------------------------------\n\n  const isBounce =\n    data.is_bounce === true ||\n\n    text.includes(\"address not found\") ||\n    text.includes(\"user unknown\") ||\n    text.includes(\"no such user\") ||\n    text.includes(\"recipient address rejected\") ||\n    text.includes(\"mailbox unavailable\") ||\n\n    text.includes(\"message wasn't delivered\") ||\n    text.includes(\"delivery failed\") ||\n    text.includes(\"delivery status notification\") ||\n    text.includes(\"undelivered mail\") ||\n    text.includes(\"returned mail\") ||\n\n    text.includes(\"domain not found\") ||\n    text.includes(\"host not found\") ||\n    text.includes(\"couldn't be found\");\n\n  //----------------------------------------\n  // 是否客户回复\n  //----------------------------------------\n\n  const isCustomerReply =\n    fromEmail &&\n    customerEmail &&\n    fromEmail === customerEmail &&\n    !isBounce;\n\n  //----------------------------------------\n  // Bounce\n  //----------------------------------------\n\n  if (isBounce) {\n\n    deliveryStatus = \"failed\";\n\n    failureReason = snippet;\n\n    // 保存退信历史\n    if (conversationHistory.trim() !== \"\") {\n\n      conversationHistory +=\n`\\n\\n-------------------------\n${messageTime}\n-------------------------\n${snippet}`;\n\n    } else {\n\n      conversationHistory = snippet;\n\n    }\n\n    if (\n\n      text.includes(\"address not found\") ||\n      text.includes(\"user unknown\") ||\n      text.includes(\"no such user\") ||\n      text.includes(\"recipient address rejected\") ||\n      text.includes(\"mailbox unavailable\")\n\n    ) {\n\n      conversationStatus = \"invalid_email\";\n\n    }\n\n    else if (\n\n      text.includes(\"domain not found\") ||\n      text.includes(\"host not found\") ||\n      text.includes(\"couldn't be found\")\n\n    ) {\n\n      conversationStatus = \"invalid_domain\";\n\n    }\n\n    else {\n\n      conversationStatus = \"delivery_failed\";\n\n    }\n\n  }\n\n  //----------------------------------------\n  // 客户回复\n  //----------------------------------------\n\n  else if (isCustomerReply) {\n\n    if (isNewMessage) {\n\n      replyCount++;\n\n      lastReplyContent = snippet;\n\n      lastReplyAt = messageTime;\n\n      if (conversationHistory.trim() !== \"\") {\n\n        conversationHistory +=\n`\\n\\n-------------------------\n${messageTime}\n-------------------------\n${snippet}`;\n\n      } else {\n\n        conversationHistory = snippet;\n\n      }\n\n    }\n\n    const replyText =\n      String(\n        lastReplyContent ||\n        snippet\n      ).toLowerCase();\n\n    //------------------------------------\n    // 拒绝合作\n    //------------------------------------\n\n    if (\n\n      replyText.includes(\"not interested\") ||\n      replyText.includes(\"no interest\") ||\n      replyText.includes(\"unable to assist\") ||\n      replyText.includes(\"not our business\") ||\n      replyText.includes(\"not part of our current business\") ||\n      replyText.includes(\"remove me\") ||\n      replyText.includes(\"stop emailing\") ||\n      replyText.includes(\"unsubscribe\")\n\n    ) {\n\n      conversationStatus = \"rejected\";\n\n    }\n\n    //------------------------------------\n    // 有采购意向\n    //------------------------------------\n\n    else if (\n\n      replyText.includes(\"price\") ||\n      replyText.includes(\"catalog\") ||\n      replyText.includes(\"quotation\") ||\n      replyText.includes(\"quote\") ||\n      replyText.includes(\"send details\") ||\n      replyText.includes(\"more information\") ||\n      replyText.includes(\"minimum order\") ||\n      replyText.includes(\"moq\") ||\n      replyText.includes(\"sample\") ||\n      replyText.includes(\"whatsapp\")\n\n    ) {\n\n      conversationStatus = \"active\";\n\n    }\n\n    //------------------------------------\n    // 普通回复\n    //------------------------------------\n\n    else {\n\n      conversationStatus = \"replied\";\n\n    }\n\n  }\n\n  //----------------------------------------\n  // 非客户邮件直接跳过\n  //----------------------------------------\n\n  else {\n\n    continue;\n\n  }\n\n  //----------------------------------------\n  // 输出\n  //----------------------------------------\n\n  results.push({\n\n    json: {\n\n      // DataTable 行ID\n      id: rowId,\n\n      customer_id: data.customer_id,\n\n      company_name: data.company_name,\n\n      email: customerEmail,\n\n      email_thread_id:\n        gmailThreadId,\n\n      email_outreach_status:\n        deliveryStatus,\n\n      email_conversation_status:\n        conversationStatus,\n\n      email_reply_count:\n        replyCount,\n\n      email_last_reply_content:\n        lastReplyContent,\n\n      email_last_reply_at:\n        lastReplyAt,\n\n      email_last_message_id:\n        gmailMessageId,\n\n      email_conversation_history:\n        conversationHistory,\n\n      email_failure_reason:\n        failureReason,\n\n      updated_at:\n        new Date().toISOString()\n\n    }\n\n  });\n\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        0
+      ],
+      "id": "2f421af0-cb02-5e68-80b8-6847dd785a1e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_EMAIL_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "Email Conversation Table"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{$json.id}}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_outreach_status": "={{$json.email_outreach_status}}",
+            "email_conversation_status": "={{$json.email_conversation_status}}",
+            "email_reply_count": "={{$json.email_reply_count}}",
+            "email_last_reply_content": "={{$json.email_last_reply_content}}",
+            "email_last_reply_at": "={{$json.email_last_reply_at}}",
+            "email_last_message_id": "={{$json.email_last_message_id}}",
+            "email_conversation_history": "={{$json.email_conversation_history}}",
+            "email_failure_reason": "={{$json.email_failure_reason}}",
+            "updated_at": "={{$json.updated_at}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "customer_id",
+              "displayName": "customer_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_reply_count",
+              "displayName": "email_reply_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_conversation_status",
+              "displayName": "email_conversation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_message_id",
+              "displayName": "email_last_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_conversation_history",
+              "displayName": "email_conversation_history",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_failure_reason",
+              "displayName": "email_failure_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1408,
+        0
+      ],
+      "id": "d560de31-3dc4-5596-aded-43558103355c",
+      "name": "Update row(s)"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "readStatus": "both",
+          "receivedAfter": "={{ new Date(Date.now() - 7*24*60*60*1000).toISOString() }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        -80
+      ],
+      "id": "71092651-3459-5808-a362-6df1539b62a2",
+      "name": "Get many messages",
+      "webhookId": "c404f7d6-a972-58e3-a895-ea39e2eccbad"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "customer_email",
+              "field2": "email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        752,
+        0
+      ],
+      "id": "cec435ea-a775-5e03-91ef-42c5a9e95638",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n\n  const data = item.json;\n\n  const from = data.From || \"\";\n  const subject = data.Subject || \"\";\n  const snippet = data.snippet || \"\";\n\n  let customer_email = \"\";\n\n  // =====================================================\n  // 判断是否退信\n  // =====================================================\n\n  const isBounce =\n    subject.toLowerCase().includes(\"delivery status\") ||\n    snippet.toLowerCase().includes(\"address not found\") ||\n    snippet.toLowerCase().includes(\"message wasn't delivered\") ||\n    snippet.toLowerCase().includes(\"recipient address rejected\") ||\n    snippet.toLowerCase().includes(\"user unknown\") ||\n    snippet.toLowerCase().includes(\"mailbox unavailable\");\n\n  // =====================================================\n  // 退信：从 snippet 提取客户邮箱\n  // =====================================================\n\n  if (isBounce) {\n\n    const emailRegex =\n      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;\n\n    const emails =\n      snippet.match(emailRegex);\n\n    if (emails && emails.length > 0) {\n\n      // 找第一个不是自己的邮箱、不是 Google 系统邮箱\n      customer_email =\n        emails.find(e =>\n          !e.toLowerCase().includes(\"google\") &&\n          !e.toLowerCase().includes(\"gmail\") &&\n          !e.toLowerCase().includes(\"googlemail\") &&\n          !e.toLowerCase().includes(\"sender@example.com\")\n        ) || \"\";\n\n      customer_email =\n        customer_email.toLowerCase().trim();\n\n    }\n\n  }\n\n  // =====================================================\n  // 普通邮件：从 From 提取客户邮箱\n  // =====================================================\n\n  else {\n\n    const match =\n      from.match(/<([^>]+)>/);\n\n    if (match) {\n\n      customer_email =\n        match[1].trim().toLowerCase();\n\n    } else {\n\n      const match2 =\n        from.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);\n\n      if (match2) {\n\n        customer_email =\n          match2[0].trim().toLowerCase();\n\n      }\n\n    }\n\n  }\n\n  // =====================================================\n  // 输出\n  // =====================================================\n\n  return {\n\n    json: {\n\n      // 保留 Gmail 所有原始字段\n      ...data,\n\n      // Merge 专用邮箱\n      customer_email,\n\n      // Gmail Message ID（永远不要覆盖）\n      gmail_message_id: data.id,\n\n      // Gmail Thread ID\n      gmail_thread_id: data.threadId,\n\n      // 是否退信（以后业务判断可直接使用）\n      is_bounce: isBounce\n\n    }\n\n  };\n\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -80
+      ],
+      "id": "51061f49-ebcb-5fb7-9bba-5887157f9576",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}

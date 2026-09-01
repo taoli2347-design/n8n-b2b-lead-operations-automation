@@ -1,0 +1,1355 @@
+{
+  "name": "B2B Lead Cleaning & Qualification (Sanitized)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "91dd94ed-79ff-5596-b97b-79d1479e1456",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_SOURCE_PROSPECTS",
+          "mode": "list",
+          "cachedResultName": "Source Prospects Table"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "processed",
+              "condition": "isEmpty"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "71af613e-5bf6-5777-b3eb-ec8114131a9d",
+      "name": "Get row(s)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 全球客户数据清洗 V1.1\n// 节点：类型清洗\n//\n// 目标：筛选925银饰、珠宝、饰品相关潜在客户\n//\n// V1.1升级：\n// 同时利用 Google Maps 官方的：\n// business_type / type / category / subtypes\n//\n// 不包含国家规则。\n// 将来增加语言时，只扩展关键词配置，不修改主体逻辑。\n\n\n// ==================================================\n// 1. 通用文本处理\n// ==================================================\n\nfunction normalizeText(value) {\n  return (value ?? \"\")\n    .toString()\n    .normalize(\"NFKC\")\n    .toLowerCase()\n    .trim()\n    .replace(/[.,;:()[\\]{}]/g, \" \")\n    .replace(/[_\\-\\/]+/g, \" \")\n    .replace(/\\s+/g, \" \");\n}\n\n\nfunction firstNonEmpty(...values) {\n  for (const value of values) {\n    if (\n      value !== null &&\n      value !== undefined &&\n      value.toString().trim() !== \"\"\n    ) {\n      return value;\n    }\n  }\n\n  return \"\";\n}\n\n\n// 英文关键词按完整单词或短语判断\n// 阿拉伯语等非拉丁文字使用包含判断\nfunction containsTerm(text, term) {\n  if (!text || !term) {\n    return false;\n  }\n\n  const normalizedText = normalizeText(text);\n  const normalizedTerm = normalizeText(term);\n\n  const isEnglishTerm = /^[a-z0-9 ]+$/.test(normalizedTerm);\n\n  if (!isEnglishTerm) {\n    return normalizedText.includes(normalizedTerm);\n  }\n\n  const escaped = normalizedTerm.replace(\n    /[.*+?^${}()|[\\]\\\\]/g,\n    \"\\\\$&\"\n  );\n\n  const pattern = new RegExp(\n    `(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`,\n    \"i\"\n  );\n\n  return pattern.test(normalizedText);\n}\n\n\nfunction matchesAny(text, terms) {\n  if (!text) {\n    return false;\n  }\n\n  return terms.some(term =>\n    containsTerm(text, term)\n  );\n}\n\n\n// ==================================================\n// 2. 读取 Google Maps 行业字段\n// ==================================================\n\n// business_type 是我们数据总表里的标准字段\nconst businessTypeRaw = firstNonEmpty(\n  $json.business_type,\n  $json.type,\n  $json.business?.type\n);\n\nconst categoryRaw = firstNonEmpty(\n  $json.category,\n  $json.business?.category\n);\n\nconst subtypesRaw = firstNonEmpty(\n  $json.subtypes,\n  $json.business?.subtypes\n);\n\n\nconst businessType = normalizeText(businessTypeRaw);\nconst category = normalizeText(categoryRaw);\nconst subtypes = normalizeText(subtypesRaw);\n\nconst companyName = normalizeText(\n  $json.company_name\n);\n\n\n// 把所有 Google Maps 行业信号合并\n// 不覆盖任何原字段，只用于行业判断\nconst industryText = [\n  businessType,\n  category,\n  subtypes\n]\n  .filter(Boolean)\n  .join(\" | \");\n\n\n// 默认状态\n$json.industry_match = false;\n$json.lead_status = \"raw\";\n$json.reject_reason = \"\";\n\n\n// ==================================================\n// 3. 判断行业字段是否完全缺失/无效\n// ==================================================\n\nconst invalidSinglePatterns = [\n  /^$/,\n  /^fb$/,\n  /^facebook$/,\n  /^duckduckgo$/,\n  /^google$/,\n  /^instagram$/,\n  /^whatsapp$/,\n  /^http:\\/\\//,\n  /^https:\\/\\//,\n  /^www\\./\n];\n\n\nfunction isInvalidIndustryValue(value) {\n  const text = normalizeText(value);\n\n  return invalidSinglePatterns.some(pattern =>\n    pattern.test(text)\n  );\n}\n\n\nconst allIndustrySignalsInvalid =\n  isInvalidIndustryValue(businessType) &&\n  isInvalidIndustryValue(category) &&\n  isInvalidIndustryValue(subtypes);\n\n\n// ==================================================\n// 4. 强目标行业\n//\n// 规则：\n// business_type / category / subtypes\n// 任意一个出现明确珠宝证据即可进入目标行业。\n// ==================================================\n\nconst strongTargetTypes = [\n\n  // 珠宝零售\n  \"jewelry store\",\n  \"jewellery store\",\n  \"jewelry stores\",\n  \"jewellery stores\",\n  \"jewelry shop\",\n  \"jewellery shop\",\n\n  \"jeweler\",\n  \"jeweller\",\n  \"jewelers\",\n  \"jewellers\",\n\n  // B2B\n  \"jewelry wholesaler\",\n  \"jewellery wholesaler\",\n  \"wholesale jeweler\",\n  \"wholesale jeweller\",\n\n  \"jewelry supplier\",\n  \"jewellery supplier\",\n\n  \"jewelry manufacturer\",\n  \"jewellery manufacturer\",\n\n  \"jewelry distributor\",\n  \"jewellery distributor\",\n\n  \"jewelry retailer\",\n  \"jewellery retailer\",\n\n  // 设计\n  \"jewelry designer\",\n  \"jewellery designer\",\n\n  // 银饰\n  \"silver jewelry\",\n  \"silver jewellery\",\n  \"silver jewelry store\",\n  \"silver jewellery store\",\n  \"sterling silver\",\n\n  // 时尚饰品\n  \"fashion jewelry\",\n  \"fashion jewellery\",\n\n  \"costume jewelry\",\n  \"costume jewellery\",\n\n  \"fashion accessories store\",\n\n  // 身体饰品\n  \"body jewelry store\",\n  \"body jewellery store\",\n  \"body piercing shop\",\n  \"piercing shop\",\n\n  // 贵金属/珠宝相关\n  \"gold dealer\",\n  \"diamond dealer\",\n\n  \"goldsmith\",\n  \"silversmith\",\n  \"engraver\",\n\n  \"jewelry repair service\",\n  \"jewellery repair service\",\n\n  // 阿拉伯语\n  \"متجر مجوهرات\",\n  \"محل مجوهرات\",\n  \"مجوهرات\",\n  \"مجوهرات فضية\",\n  \"فضة\",\n  \"ذهب\",\n  \"ألماس\",\n  \"الماس\",\n  \"صائغ\",\n  \"صياغة\",\n  \"إكسسوارات\",\n  \"اكسسوارات\"\n];\n\n\nif (matchesAny(industryText, strongTargetTypes)) {\n\n  $json.industry_match = true;\n  $json.lead_status = \"raw\";\n  $json.reject_reason = \"\";\n\n  return $json;\n}\n\n\n// ==================================================\n// 5. 硬黑名单行业\n//\n// 注意：\n// 强珠宝证据已经在上一步优先放行。\n// 因此“Jewelry store + Gift shop”等不会误杀。\n// 只有没有强珠宝证据时才执行黑名单。\n// ==================================================\n\nconst blacklist = [\n\n  \"restaurant\",\n  \"cafe\",\n  \"coffee shop\",\n  \"coffee store\",\n  \"hotel\",\n  \"resort\",\n\n  \"clinic\",\n  \"hospital\",\n  \"medical center\",\n  \"doctor\",\n  \"dentist\",\n  \"pharmacy\",\n\n  \"school\",\n  \"university\",\n  \"college\",\n  \"kindergarten\",\n\n  \"gym\",\n  \"fitness center\",\n\n  \"bank\",\n  \"insurance\",\n  \"real estate\",\n\n  \"construction\",\n  \"building materials\",\n  \"steel distributor\",\n  \"mining equipment\",\n\n  \"car dealer\",\n  \"auto repair\",\n  \"car wash\",\n  \"gas station\",\n\n  \"plumber\",\n  \"electrician\",\n\n  \"commercial printer\",\n  \"paper distributor\",\n\n  \"appliance store\",\n  \"electronics store\",\n  \"mobile phone store\",\n  \"computer store\",\n\n  \"grocery store\",\n  \"hypermarket\",\n  \"supermarket\",\n  \"discount supermarket\",\n  \"dry fruit store\",\n  \"food store\",\n\n  \"furniture store\",\n  \"home goods store\",\n\n  \"travel agency\",\n  \"law firm\",\n  \"accounting firm\",\n  \"logistics company\",\n  \"courier service\",\n  \"warehouse\",\n\n  // 阿拉伯语\n  \"مطعم\",\n  \"مقهى\",\n  \"فندق\",\n  \"منتجع\",\n  \"عيادة\",\n  \"مستشفى\",\n  \"صيدلية\",\n  \"مدرسة\",\n  \"جامعة\",\n  \"نادي رياضي\",\n  \"بنك\",\n  \"تأمين\",\n  \"عقارات\",\n  \"مقاولات\",\n  \"سيارات\",\n  \"إلكترونيات\",\n  \"سوبرماركت\",\n  \"أثاث\"\n];\n\n\nif (matchesAny(industryText, blacklist)) {\n\n  $json.industry_match = false;\n  $json.lead_status = \"rejected\";\n  $json.reject_reason = \"industry_blacklist\";\n\n  return $json;\n}\n\n\n// ==================================================\n// 6. 辅助目标行业\n//\n// 没有明确珠宝类型，\n// 但这些渠道存在销售银饰的合理可能。\n// ==================================================\n\nconst supportingTargetTypes = [\n\n  \"accessories store\",\n  \"boutique\",\n  \"gift shop\",\n  \"watch store\",\n  \"fashion store\",\n\n  \"بوتيك\",\n  \"متجر هدايا\",\n  \"محل هدايا\",\n  \"متجر ساعات\"\n];\n\n\nif (matchesAny(industryText, supportingTargetTypes)) {\n\n  $json.industry_match = true;\n  $json.lead_status = \"raw\";\n  $json.reject_reason = \"\";\n\n  return $json;\n}\n\n\n// ==================================================\n// 7. 公司名称辅助判断\n//\n// 只有行业字段没有提供明确结论时使用。\n// 黑名单已经在上一步处理，因此公司名不能覆盖黑名单。\n// ==================================================\n\nconst companyTargetKeywords = [\n\n  \"jewelry\",\n  \"jewellery\",\n  \"jewel\",\n  \"jewels\",\n  \"jeweler\",\n  \"jeweller\",\n\n  \"silver\",\n  \"sterling\",\n  \"gold\",\n  \"diamond\",\n  \"gems\",\n  \"gemstone\",\n\n  \"accessories\",\n  \"bijoux\",\n  \"bijouterie\",\n\n  \"مجوهرات\",\n  \"فضة\",\n  \"ذهب\",\n  \"ألماس\",\n  \"الماس\",\n  \"إكسسوارات\",\n  \"اكسسوارات\"\n];\n\n\nif (matchesAny(companyName, companyTargetKeywords)) {\n\n  $json.industry_match = true;\n  $json.lead_status = \"raw\";\n  $json.reject_reason = \"\";\n\n  return $json;\n}\n\n\n// ==================================================\n// 8. 所有行业字段都无效或缺失\n// ==================================================\n\nif (allIndustrySignalsInvalid) {\n\n  $json.industry_match = false;\n  $json.lead_status = \"rejected\";\n  $json.reject_reason = \"invalid_business_type\";\n\n  return $json;\n}\n\n\n// ==================================================\n// 9. 有行业信息，但没有任何珠宝行业证据\n// ==================================================\n\n$json.industry_match = false;\n$json.lead_status = \"rejected\";\n$json.reject_reason = \"industry_not_matched\";\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "75f5de24-71f9-57a6-8b89-0e6aa009fa1b",
+      "name": "类型清洗"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：邮箱清理\n//\n// 只负责：\n// 1. 规范化 email\n// 2. 统一 email_status\n// 3. 判断 email_valid\n//\n// 不修改：\n// lead_status\n// reject_reason\n// industry_match\n// Email / WhatsApp / CRM历史字段\n\n\n// ==================================================\n// 1. 读取原始字段\n// ==================================================\n\nconst emailRaw = ($json.email ?? \"\")\n  .toString()\n  .trim()\n  .toLowerCase();\n\nconst originalEmailStatus = (\n  $json.email_status ??\n  $json[\"email.emails_validator.status\"] ??\n  \"\"\n)\n  .toString()\n  .trim()\n  .toUpperCase();\n\n\n// ==================================================\n// 2. 默认输出\n// ==================================================\n\n$json.email = emailRaw;\n$json.email_status = \"UNKNOWN\";\n$json.email_valid = false;\n\n\n// ==================================================\n// 3. 空邮箱\n// 客户仍然保留，可继续通过WhatsApp开发\n// ==================================================\n\nif (!emailRaw) {\n  $json.email_status = \"UNKNOWN\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 4. BLACKLISTED优先处理\n// 邮箱禁止发送，但不拒绝整个客户\n// ==================================================\n\nif (originalEmailStatus.includes(\"BLACKLISTED\")) {\n  $json.email_status = \"BLACKLISTED\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 5. 邮箱格式验证\n// ==================================================\n\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nif (!emailRegex.test(emailRaw)) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 6. 非邮箱垃圾内容\n// ==================================================\n\nconst invalidContentPatterns = [\n  \"facebook\",\n  \"instagram\",\n  \"duckduckgo\",\n  \"google\",\n  \"whatsapp\",\n  \"http://\",\n  \"https://\",\n  \"www.\"\n];\n\nconst containsInvalidContent = invalidContentPatterns.some(pattern =>\n  emailRaw.includes(pattern)\n);\n\nif (containsInvalidContent) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 7. 占位或测试邮箱\n// ==================================================\n\nconst placeholderEmails = [\n  \"xxx@xxx.com\",\n  \"abc@abc.com\",\n  \"test@test.com\",\n  \"example@example.com\",\n  \"email@email.com\",\n  \"name@domain.com\",\n  \"yourname@email.com\",\n  \"info@example.com\",\n  \"sales@example.com\",\n  \"contact@example.com\",\n  \"admin@admin.com\"\n];\n\nif (placeholderEmails.includes(emailRaw)) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 8. 拆分邮箱前缀和域名\n// ==================================================\n\nconst [localPart = \"\", domainPart = \"\"] = emailRaw.split(\"@\");\n\n\n// ==================================================\n// 9. 假邮箱前缀\n// 只做完全匹配，不误伤包含这些字符的正常邮箱\n// ==================================================\n\nconst badLocalParts = [\n  \"xxx\",\n  \"abc\",\n  \"test\",\n  \"example\",\n  \"email\",\n  \"yourname\",\n  \"username\",\n  \"user\",\n  \"demo\",\n  \"sample\"\n];\n\nif (badLocalParts.includes(localPart)) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 10. 假邮箱域名\n// ==================================================\n\nconst badDomains = [\n  \"xxx.com\",\n  \"abc.com\",\n  \"example.com\",\n  \"domain.com\",\n  \"email.com\",\n  \"test.com\",\n  \"sample.com\",\n  \"demo.com\"\n];\n\nif (badDomains.includes(domainPart)) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// ==================================================\n// 11. 根据邮箱验证状态统一输出\n// ==================================================\n\nif (originalEmailStatus.includes(\"RECEIVING\")) {\n  $json.email_status = \"RECEIVING\";\n  $json.email_valid = true;\n\n  return $json;\n}\n\nif (originalEmailStatus.includes(\"INVALID\")) {\n  $json.email_status = \"INVALID\";\n  $json.email_valid = false;\n\n  return $json;\n}\n\n\n// 没有明确验证结果，或原始状态无法识别\n$json.email_status = \"UNKNOWN\";\n$json.email_valid = false;\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "641e6d82-5207-5b94-9701-771ef823fea2",
+      "name": "邮箱清理"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：通用电话清洗\n//\n// 国家号段规则来自“国家识别与规则配置”节点。\n// 未来新增国家时，不需要修改本节点。\n//\n// 输出：\n// phone_clean\n// phone_type\n// whatsapp_available\n// phone_country_mismatch\n\n\n// ==================================================\n// 1. 默认输出\n// ==================================================\n\nconst phoneRaw = ($json.phone ?? \"\")\n  .toString()\n  .trim();\n\n$json.phone_clean = \"\";\n$json.phone_type = \"missing\";\n$json.whatsapp_available = false;\n\n// 临时诊断字段：国家字段与电话号码国家不一致\n$json.phone_country_mismatch = false;\n\n\n// ==================================================\n// 2. 空电话\n// ==================================================\n\nif (!phoneRaw) {\n  return $json;\n}\n\n\n// ==================================================\n// 3. 阿拉伯数字、波斯数字转英文数字\n// ==================================================\n\nfunction normalizeDigits(value) {\n  const arabicDigits = \"٠١٢٣٤٥٦٧٨٩\";\n  const persianDigits = \"۰۱۲۳۴۵۶۷۸۹\";\n\n  return (value ?? \"\")\n    .toString()\n    .replace(/[٠-٩]/g, digit =>\n      arabicDigits.indexOf(digit).toString()\n    )\n    .replace(/[۰-۹]/g, digit =>\n      persianDigits.indexOf(digit).toString()\n    );\n}\n\n\nfunction digitsOnly(value) {\n  return normalizeDigits(value)\n    .replace(/\\D/g, \"\");\n}\n\n\n// ==================================================\n// 4. 经纬度、小数等垃圾值\n// ==================================================\n\nconst compactRaw = normalizeDigits(phoneRaw)\n  .replace(/\\s+/g, \"\");\n\nif (/^[+-]?\\d{1,3}[.,]\\d+$/.test(compactRaw)) {\n  $json.phone_type = \"invalid\";\n  return $json;\n}\n\n\n// ==================================================\n// 5. 读取国家配置\n// ==================================================\n\nconst countrySupported =\n  $json.cleaning_country_status === \"supported\";\n\nconst dialCode = digitsOnly(\n  $json.cleaning_dial_code\n);\n\nconst trunkPrefix = digitsOnly(\n  $json.cleaning_local_trunk_prefix\n);\n\nconst phoneRules =\n  $json.cleaning_phone_rules &&\n  typeof $json.cleaning_phone_rules === \"object\"\n    ? $json.cleaning_phone_rules\n    : {};\n\n\nfunction compilePatterns(patterns) {\n  if (!Array.isArray(patterns)) {\n    return [];\n  }\n\n  return patterns\n    .map(pattern => {\n      try {\n        return new RegExp(pattern);\n      } catch {\n        return null;\n      }\n    })\n    .filter(Boolean);\n}\n\n\nconst mobilePatterns = compilePatterns(\n  phoneRules.mobile_patterns\n);\n\nconst landlinePatterns = compilePatterns(\n  phoneRules.landline_patterns\n);\n\nconst hotlinePatterns = compilePatterns(\n  phoneRules.hotline_patterns\n);\n\nconst shortNumberPatterns = compilePatterns(\n  phoneRules.short_number_patterns\n);\n\nconst whatsappPhoneTypes = Array.isArray(\n  phoneRules.whatsapp_phone_types\n)\n  ? phoneRules.whatsapp_phone_types\n  : [];\n\n\n// ==================================================\n// 6. 提取一个或多个候选号码\n// 防止两个号码被直接拼接\n// ==================================================\n\nfunction extractCandidates(rawValue) {\n  let text = normalizeDigits(rawValue);\n\n  // 删除分机号码\n  text = text.replace(\n    /\\b(?:ext|extension|x)\\s*[:.]?\\s*\\d+\\b/gi,\n    \"\"\n  );\n\n  // 电话标签作为分隔符\n  text = text.replace(\n    /\\b(?:tel|telephone|phone|mobile|mob|whatsapp|fax)\\s*[:.]?/gi,\n    \"|\"\n  );\n\n  text = text.replace(\n    /\\s+(?:or|and)\\s+/gi,\n    \"|\"\n  );\n\n  const initialParts = text.split(\n    /[\\/;,|\\n\\r]+/\n  );\n\n  const candidates = [];\n\n  for (const initialPart of initialParts) {\n    // 同一段里出现多个“+”时继续拆开\n    const parts = initialPart\n      .split(/(?=\\+)/)\n      .map(value => value.trim())\n      .filter(Boolean);\n\n    for (const part of parts) {\n      let cleaned = part\n        .replace(/\\s+/g, \"\")\n        .replace(/-/g, \"\")\n        .replace(/\\(/g, \"\")\n        .replace(/\\)/g, \"\")\n        .replace(/[^\\d+]/g, \"\");\n\n      if (!cleaned) {\n        continue;\n      }\n\n      // 00国际格式转成+\n      if (cleaned.startsWith(\"00\")) {\n        cleaned = \"+\" + cleaned.slice(2);\n      }\n\n      const explicitInternational =\n        cleaned.startsWith(\"+\");\n\n      // 只允许开头保留一个+\n      if (explicitInternational) {\n        cleaned =\n          \"+\" +\n          cleaned.slice(1).replace(/\\+/g, \"\");\n      } else {\n        cleaned = cleaned.replace(/\\+/g, \"\");\n      }\n\n      const digits = cleaned.replace(/\\D/g, \"\");\n\n      if (digits.length < 3) {\n        continue;\n      }\n\n      candidates.push({\n        digits,\n        explicitInternational\n      });\n    }\n  }\n\n  return candidates;\n}\n\n\n// ==================================================\n// 7. 通用规则匹配\n// ==================================================\n\nfunction matchesAny(value, patterns) {\n  return patterns.some(pattern =>\n    pattern.test(value)\n  );\n}\n\n\nfunction buildNationalPhone(nationalNumber) {\n  return \"+\" + dialCode + nationalNumber;\n}\n\n\n// ==================================================\n// 8. 判断单个候选号码\n// ==================================================\n\nfunction classifyCandidate(candidate) {\n  const digits = candidate.digits;\n\n  // ----------------------------------------------\n  // A. 当前国家已经支持\n  // ----------------------------------------------\n\n  if (\n    countrySupported &&\n    dialCode\n  ) {\n    let nationalNumber = \"\";\n    let belongsToCurrentCountry = false;\n\n    // +966、00966或966开头\n    if (digits.startsWith(dialCode)) {\n      nationalNumber = digits.slice(\n        dialCode.length\n      );\n\n      belongsToCurrentCountry = true;\n    }\n\n    // 明确带+，但不是当前国家区号\n    else if (candidate.explicitInternational) {\n      if (\n        digits.length >= 8 &&\n        digits.length <= 15\n      ) {\n        return {\n          phone_clean: \"+\" + digits,\n          phone_type: \"international\",\n          mismatch: true,\n          priority: 2\n        };\n      }\n\n      return {\n        phone_clean: \"\",\n        phone_type: \"invalid\",\n        mismatch: true,\n        priority: 0\n      };\n    }\n\n    // 当前国家的本地号码\n    else {\n      nationalNumber = digits;\n      belongsToCurrentCountry = true;\n    }\n\n    // 去掉本地前缀0\n    // 例如050... → 50...\n    if (\n      trunkPrefix &&\n      nationalNumber.startsWith(trunkPrefix) &&\n      nationalNumber.length > trunkPrefix.length\n    ) {\n      nationalNumber = nationalNumber.slice(\n        trunkPrefix.length\n      );\n    }\n\n    // 手机\n    if (\n      matchesAny(\n        nationalNumber,\n        mobilePatterns\n      )\n    ) {\n      return {\n        phone_clean:\n          buildNationalPhone(nationalNumber),\n\n        phone_type: \"mobile\",\n        mismatch: false,\n        priority: 5\n      };\n    }\n\n    // 固话\n    if (\n      matchesAny(\n        nationalNumber,\n        landlinePatterns\n      )\n    ) {\n      return {\n        phone_clean:\n          buildNationalPhone(nationalNumber),\n\n        phone_type: \"landline\",\n        mismatch: false,\n        priority: 4\n      };\n    }\n\n    // 800、600、9200等热线\n    if (\n      matchesAny(\n        nationalNumber,\n        hotlinePatterns\n      )\n    ) {\n      return {\n        phone_clean:\n          buildNationalPhone(nationalNumber),\n\n        phone_type: \"hotline\",\n        mismatch: false,\n        priority: 3\n      };\n    }\n\n    // 3—6位短号码不伪造国际格式\n    if (\n      matchesAny(\n        nationalNumber,\n        shortNumberPatterns\n      )\n    ) {\n      return {\n        phone_clean: nationalNumber,\n        phone_type: \"hotline\",\n        mismatch: false,\n        priority: 3\n      };\n    }\n\n    // 当前国家号码但不符合任何合法规则\n    if (belongsToCurrentCountry) {\n      return {\n        phone_clean: \"\",\n        phone_type: \"invalid\",\n        mismatch: false,\n        priority: 0\n      };\n    }\n  }\n\n\n  // ----------------------------------------------\n  // B. 国家尚未配置\n  // ----------------------------------------------\n\n  if (\n    candidate.explicitInternational &&\n    digits.length >= 8 &&\n    digits.length <= 15\n  ) {\n    return {\n      phone_clean: \"+\" + digits,\n      phone_type: \"international\",\n      mismatch: false,\n      priority: 2\n    };\n  }\n\n  // 本地号码因国家规则尚未开发，暂不强行判错\n  return {\n    phone_clean: \"\",\n    phone_type: \"unknown\",\n    mismatch: false,\n    priority: 1\n  };\n}\n\n\n// ==================================================\n// 9. 多号码选择\n// 优先级：mobile > landline > hotline > international\n// ==================================================\n\nconst candidates = extractCandidates(phoneRaw);\n\nif (candidates.length === 0) {\n  $json.phone_type = \"invalid\";\n  return $json;\n}\n\n\nconst classified = candidates.map(\n  classifyCandidate\n);\n\nclassified.sort(\n  (a, b) => b.priority - a.priority\n);\n\nconst selected = classified[0];\n\n\n$json.phone_clean = selected.phone_clean;\n$json.phone_type = selected.phone_type;\n$json.phone_country_mismatch =\n  selected.mismatch === true;\n\n\n// 只有配置允许的号码类型才标记为WhatsApp候选\n$json.whatsapp_available =\n  whatsappPhoneTypes.includes(\n    selected.phone_type\n  );\n\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "2d0bd5e6-19b5-52b9-9ae1-06f18b146e03",
+      "name": "电话清洗"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9e7e9102-7a30-4c5f-b2de-dd49e1d3eb28",
+              "leftValue": "=={{ $json.industry_match === true && ($json.email_status === \"RECEIVING\" || $json.phone_type === \"mobile\") }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "2614ed26-48b5-5a1a-8482-8fad81b8443a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：当前批次渠道分别去重\n// Mode：Run Once for All Items\n//\n// 核心规则：\n// 1. 邮箱重复、手机新：保留客户，邮箱渠道标记跳过\n// 2. 邮箱新、手机重复：保留客户，WhatsApp渠道标记跳过\n// 3. 邮箱和手机都重复：整条记录判为重复\n// 4. 空值及不可开发渠道不参与去重\n// 5. 已有 sent / processing / failed 等状态绝不覆盖\n//\n// 本节点只检查“本次执行批次”。\n// 历史数据由后面的历史渠道去重负责。\n\nfunction normalizeEmail(value) {\n  return String(value ?? \"\")\n    .normalize(\"NFKC\")\n    .toLowerCase()\n    .trim();\n}\n\nfunction normalizePhone(value) {\n  return String(value ?? \"\")\n    .trim()\n    .replace(/\\s+/g, \"\");\n}\n\nfunction toBoolean(value) {\n  return (\n    value === true ||\n    value === 1 ||\n    value === \"1\" ||\n    value === \"true\"\n  );\n}\n\nfunction isEmptyStatus(value) {\n  return String(value ?? \"\").trim() === \"\";\n}\n\n// 本次批次中已经出现过的可开发联系方式\nconst seenEmails = new Set();\nconst seenPhones = new Set();\n\nconst output = [];\n\nfor (const item of $input.all()) {\n  const json = { ...item.json };\n\n  const email = normalizeEmail(json.email);\n  const phone = normalizePhone(json.phone_clean);\n\n  const emailStatus = String(\n    json.email_status ?? \"\"\n  )\n    .trim()\n    .toUpperCase();\n\n  const phoneType = String(\n    json.phone_type ?? \"\"\n  )\n    .trim()\n    .toLowerCase();\n\n  // Email发送流程只开发可正常接收的邮箱\n  const hasUsableEmail =\n    email !== \"\" &&\n    (\n      emailStatus === \"RECEIVING\" ||\n      (\n        emailStatus === \"\" &&\n        toBoolean(json.email_valid)\n      )\n    );\n\n  // WhatsApp发送流程只开发手机号码\n  const hasUsablePhone =\n    phone !== \"\" &&\n    phoneType === \"mobile\";\n\n  // 分别判断本批次渠道重复\n  const emailDuplicate =\n    hasUsableEmail &&\n    seenEmails.has(email);\n\n  const phoneDuplicate =\n    hasUsablePhone &&\n    seenPhones.has(phone);\n\n  json.email_is_duplicate = emailDuplicate;\n  json.phone_is_duplicate = phoneDuplicate;\n\n  // 邮箱重复，但整条客户仍可能因新手机号而保留\n  // 只关闭Email渠道，不覆盖已有发送状态\n  if (\n    emailDuplicate &&\n    isEmptyStatus(json.email_outreach_status)\n  ) {\n    json.email_outreach_status =\n      \"skipped_duplicate_email\";\n  }\n\n  // 手机号重复，但整条客户仍可能因新邮箱而保留\n  // 只关闭WhatsApp渠道，不覆盖已有发送状态\n  if (\n    phoneDuplicate &&\n    isEmptyStatus(json.whatsapp_outreach_status)\n  ) {\n    json.whatsapp_outreach_status =\n      \"skipped_duplicate_phone\";\n  }\n\n  const hasNewEmail =\n    hasUsableEmail &&\n    !emailDuplicate;\n\n  const hasNewPhone =\n    hasUsablePhone &&\n    !phoneDuplicate;\n\n  const hasAnyNewChannel =\n    hasNewEmail ||\n    hasNewPhone;\n\n  // 只要还有一个新渠道，就保留客户\n  if (hasAnyNewChannel) {\n    json.is_duplicate = false;\n\n    if (hasNewEmail) {\n      seenEmails.add(email);\n    }\n\n    if (hasNewPhone) {\n      seenPhones.add(phone);\n    }\n\n    output.push({ json });\n    continue;\n  }\n\n  // 没有任何新开发渠道，整条记录才拒绝\n  json.is_duplicate = true;\n  json.lead_status = \"rejected\";\n\n  if (emailDuplicate && phoneDuplicate) {\n    json.reject_reason =\n      \"duplicate_email_and_phone\";\n  } else if (emailDuplicate) {\n    json.reject_reason =\n      \"duplicate_email_no_new_phone\";\n  } else if (phoneDuplicate) {\n    json.reject_reason =\n      \"duplicate_phone_no_new_email\";\n  } else {\n    json.reject_reason =\n      \"no_new_usable_channel\";\n  }\n\n  output.push({ json });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -96
+      ],
+      "id": "d53d3120-7bec-52a6-a0ee-1c6e8a770f90",
+      "name": "去重复标记"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "27b440fb-0acc-46bc-b9ec-db0a542682d0",
+              "leftValue": "={{$json.is_duplicate}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1664,
+        -96
+      ],
+      "id": "cf3a778c-184c-5fb7-a268-644cc3fb1466",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：925银饰客户评分及分级 V3.1\n//\n// V3.1升级：\n// 1. 行业评分同时读取 business_type / type / category / subtypes\n// 2. 兼容旧 Enrichment business.xxx 结构\n// 3. 保持原评分权重和 A/B/C 阈值不变\n// 4. 不修改 Email、WhatsApp、CRM 历史字段\n\n\n// ==================================================\n// 0. 通用函数\n// ==================================================\n\nfunction normalizeText(value) {\n  if (Array.isArray(value)) {\n    value = value.join(\" \");\n  }\n\n  return (value ?? \"\")\n    .toString()\n    .normalize(\"NFKC\")\n    .toLowerCase()\n    .trim()\n    .replace(/[.,;:()[\\]{}]/g, \" \")\n    .replace(/[_\\-\\/]+/g, \" \")\n    .replace(/\\s+/g, \" \");\n}\n\n\n// 英文按完整单词/短语匹配\n// 阿拉伯语等非拉丁文字按包含匹配\nfunction containsTerm(text, term) {\n  if (!text || !term) {\n    return false;\n  }\n\n  const normalizedText = normalizeText(text);\n  const normalizedTerm = normalizeText(term);\n\n  const isEnglishTerm =\n    /^[a-z0-9 ]+$/.test(normalizedTerm);\n\n  if (!isEnglishTerm) {\n    return normalizedText.includes(normalizedTerm);\n  }\n\n  const escaped = normalizedTerm.replace(\n    /[.*+?^${}()|[\\]\\\\]/g,\n    \"\\\\$&\"\n  );\n\n  const pattern = new RegExp(\n    `(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`,\n    \"i\"\n  );\n\n  return pattern.test(normalizedText);\n}\n\n\nfunction matchesAny(text, terms) {\n  if (!text) {\n    return false;\n  }\n\n  return terms.some(term =>\n    containsTerm(text, term)\n  );\n}\n\n\nfunction firstNonEmpty(...values) {\n  for (const value of values) {\n    if (\n      value !== null &&\n      value !== undefined &&\n      value.toString().trim() !== \"\"\n    ) {\n      return value;\n    }\n  }\n\n  return \"\";\n}\n\n\nfunction normalizeWebsite(value) {\n  let website = (value ?? \"\")\n    .toString()\n    .toLowerCase()\n    .trim();\n\n  if (!website) {\n    return \"\";\n  }\n\n  website = website\n    .replace(/^https?:\\/\\//, \"\")\n    .replace(/^www\\./, \"\")\n    .split(/[/?#]/)[0]\n    .replace(/:\\d+$/, \"\")\n    .trim();\n\n  const ignoredDomains = [\n    \"facebook.com\",\n    \"instagram.com\",\n    \"linkedin.com\",\n    \"tiktok.com\",\n    \"youtube.com\",\n    \"twitter.com\",\n    \"x.com\",\n    \"wa.me\",\n    \"whatsapp.com\",\n    \"google.com\"\n  ];\n\n  if (\n    ignoredDomains.some(domain =>\n      website === domain ||\n      website.endsWith(\".\" + domain)\n    )\n  ) {\n    return \"\";\n  }\n\n  if (!/^(?:[a-z0-9-]+\\.)+[a-z]{2,}$/i.test(website)) {\n    return \"\";\n  }\n\n  return website;\n}\n\n\n// ==================================================\n// 1. 读取字段\n// ==================================================\n\nconst companyName = normalizeText(\n  $json.company_name\n);\n\n\n// Google Maps 主类型\nconst businessType = normalizeText(\n  firstNonEmpty(\n    $json.business_type,\n    $json.type,\n    $json.business?.type\n  )\n);\n\n\n// Google Maps category\nconst category = normalizeText(\n  firstNonEmpty(\n    $json.category,\n    $json.business?.category\n  )\n);\n\n\n// Google Maps 所有 subtypes\nconst subtypes = normalizeText(\n  firstNonEmpty(\n    $json.subtypes,\n    $json.business?.subtypes\n  )\n);\n\n\n// 合并所有行业证据，只用于评分\n// 不覆盖原始字段\nconst industryText = [\n  businessType,\n  category,\n  subtypes\n]\n  .filter(Boolean)\n  .join(\" | \");\n\n\nconst website = normalizeWebsite(\n  firstNonEmpty(\n    $json.website,\n    $json.site,\n    $json.business?.website,\n    $json.business?.site\n  )\n);\n\n\nconst phoneType = normalizeText(\n  $json.phone_type\n);\n\n\nconst emailStatus = normalizeText(\n  $json.email_status\n).toUpperCase();\n\n\nconst emailValid =\n  $json.email_valid === true ||\n  $json.email_valid === 1 ||\n  $json.email_valid === \"1\" ||\n  $json.email_valid === \"true\";\n\n\nconst rating = Number(\n  $json.rating ||\n  $json.business?.rating ||\n  0\n);\n\n\nlet score = 0;\nconst reasons = [];\n\n\n// ==================================================\n// 2. 行业价值\n//\n// 三个等级互斥。\n// 使用 business_type + category + subtypes 综合判断。\n// ==================================================\n\n\n// 第一等级：最符合925银饰B2B采购客户\nconst tier1Types = [\n\n  \"jewelry wholesaler\",\n  \"jewellery wholesaler\",\n  \"wholesale jeweler\",\n  \"wholesale jeweller\",\n\n  \"jewelry supplier\",\n  \"jewellery supplier\",\n\n  \"jewelry distributor\",\n  \"jewellery distributor\",\n\n  \"jewelry manufacturer\",\n  \"jewellery manufacturer\",\n\n  \"silver jewelry\",\n  \"silver jewellery\",\n  \"silver jewelry store\",\n  \"silver jewellery store\",\n  \"sterling silver\",\n\n  \"fashion jewelry\",\n  \"fashion jewellery\",\n\n  \"costume jewelry\",\n  \"costume jewellery\",\n\n  \"online jewelry store\",\n  \"online jewellery store\",\n\n  // 阿拉伯语\n  \"مجوهرات فضية\",\n  \"فضة\"\n];\n\n\n// 第二等级：珠宝零售和相关专业客户\nconst tier2Types = [\n\n  \"jewelry store\",\n  \"jewellery store\",\n  \"jewelry shop\",\n  \"jewellery shop\",\n\n  \"jeweler\",\n  \"jeweller\",\n\n  \"jewelry retailer\",\n  \"jewellery retailer\",\n\n  \"jewelry designer\",\n  \"jewellery designer\",\n\n  \"fashion accessories store\",\n  \"accessories store\",\n\n  \"body jewelry store\",\n  \"body jewellery store\",\n  \"body piercing shop\",\n  \"piercing shop\",\n\n  \"silversmith\",\n  \"goldsmith\",\n\n  \"gold dealer\",\n  \"diamond dealer\",\n\n  \"engraver\",\n\n  // 阿拉伯语\n  \"متجر مجوهرات\",\n  \"محل مجوهرات\",\n  \"مجوهرات\",\n  \"صائغ\",\n  \"صياغة\",\n  \"إكسسوارات\",\n  \"اكسسوارات\"\n];\n\n\n// 第三等级：可能销售银饰的辅助渠道\nconst tier3Types = [\n\n  \"boutique\",\n  \"gift shop\",\n  \"watch store\",\n  \"fashion store\",\n\n  // 阿拉伯语\n  \"بوتيك\",\n  \"متجر هدايا\",\n  \"محل هدايا\",\n  \"متجر ساعات\"\n];\n\n\nif (matchesAny(industryText, tier1Types)) {\n\n  score += 40;\n  reasons.push(\"tier1_industry\");\n}\n\nelse if (matchesAny(industryText, tier2Types)) {\n\n  score += 30;\n  reasons.push(\"tier2_industry\");\n}\n\nelse if (matchesAny(industryText, tier3Types)) {\n\n  score += 15;\n  reasons.push(\"tier3_industry\");\n}\n\nelse if ($json.industry_match === true) {\n\n  // 类型清洗已确认属于目标行业，\n  // 但没有命中标准行业词\n  score += 10;\n  reasons.push(\"other_matched_industry\");\n}\n\n\n// ==================================================\n// 3. 公司名称中的珠宝信号\n// 最多10分\n// ==================================================\n\nconst companyKeywords = [\n\n  \"jewelry\",\n  \"jewellery\",\n  \"jewel\",\n  \"jewels\",\n\n  \"silver\",\n  \"sterling\",\n\n  \"gold\",\n  \"diamond\",\n\n  \"gem\",\n  \"gems\",\n  \"gemstone\",\n\n  \"accessories\",\n\n  \"bijoux\",\n  \"bijouterie\",\n\n  // 阿拉伯语\n  \"مجوهرات\",\n  \"فضة\",\n  \"ذهب\",\n  \"ألماس\",\n  \"الماس\",\n  \"إكسسوارات\",\n  \"اكسسوارات\"\n];\n\n\nlet companyKeywordHits = 0;\n\nfor (const keyword of companyKeywords) {\n\n  if (containsTerm(companyName, keyword)) {\n    companyKeywordHits += 1;\n  }\n}\n\n\nconst companyKeywordScore = Math.min(\n  companyKeywordHits * 5,\n  10\n);\n\n\nif (companyKeywordScore > 0) {\n\n  score += companyKeywordScore;\n  reasons.push(\"jewelry_company_name\");\n}\n\n\n// ==================================================\n// 4. 公司名称中的B2B信号\n// ==================================================\n\nconst tradeKeywords = [\n\n  \"wholesale\",\n  \"wholesaler\",\n\n  \"supplier\",\n\n  \"manufacturer\",\n  \"factory\",\n\n  \"distributor\",\n\n  \"trading\",\n\n  \"import\",\n  \"export\",\n\n  // 阿拉伯语\n  \"جملة\",\n  \"مصنع\",\n  \"مورد\",\n  \"تجارة\"\n];\n\n\nif (matchesAny(companyName, tradeKeywords)) {\n\n  score += 10;\n  reasons.push(\"b2b_company_signal\");\n}\n\n\n// ==================================================\n// 5. 有效独立网站\n// ==================================================\n\nif (website) {\n\n  score += 10;\n  reasons.push(\"has_business_website\");\n}\n\n\n// ==================================================\n// 6. Email开发渠道\n//\n// 保留原有15分规则。\n// 新架构第一次清洗时可能暂时没有Email。\n// 后续完成 Outscraper Email 查询及验证后，\n// 再次运行评分即可得到最终分数。\n// ==================================================\n\nif (\n  emailStatus === \"RECEIVING\" ||\n  emailValid === true\n) {\n\n  score += 15;\n  reasons.push(\"receiving_email\");\n}\n\n\n// ==================================================\n// 7. 电话渠道\n// ==================================================\n\nif (phoneType === \"mobile\") {\n\n  score += 15;\n  reasons.push(\"mobile_whatsapp\");\n}\n\nelse if (phoneType === \"landline\") {\n\n  score += 5;\n  reasons.push(\"landline\");\n}\n\n\n// ==================================================\n// 8. Google评分\n// ==================================================\n\nif (rating >= 4.5) {\n\n  score += 10;\n  reasons.push(\"rating_4_5_plus\");\n}\n\nelse if (rating >= 4.0) {\n\n  score += 5;\n  reasons.push(\"rating_4_plus\");\n}\n\n\n// ==================================================\n// 9. 限制最高100分\n// ==================================================\n\nscore = Math.min(\n  score,\n  100\n);\n\n\n// ==================================================\n// 10. Lead等级\n//\n// 暂时保持原阈值不变。\n// ==================================================\n\nlet leadLevel = \"D\";\n\n\nif (score >= 85) {\n\n  leadLevel = \"A\";\n}\n\nelse if (score >= 70) {\n\n  leadLevel = \"B\";\n}\n\nelse if (score >= 50) {\n\n  leadLevel = \"C\";\n}\n\n\n// ==================================================\n// 11. 保留原notes，再写入评分原因\n// ==================================================\n\nconst existingNotes = (\n  $json.notes ?? \"\"\n)\n  .toString()\n  .trim();\n\n\nconst preservedNotes = existingNotes\n  .replace(\n    /(?:\\s*\\|\\s*)?score_reasons:[^|]*/gi,\n    \"\"\n  )\n  .replace(/\\|\\s*$/, \"\")\n  .trim();\n\n\nconst scoreNotes =\n  \"score_reasons:\" +\n  reasons.join(\",\");\n\n\n$json.notes = [\n  preservedNotes,\n  scoreNotes\n]\n  .filter(Boolean)\n  .join(\" | \");\n\n\n// ==================================================\n// 12. 输出\n// ==================================================\n\n$json.lead_score = score;\n$json.lead_level = leadLevel;\n\n\n// 只有行业已通过，并且不是重复客户，\n// 才设为 qualified\nif (\n  $json.industry_match === true &&\n  $json.is_duplicate !== true\n) {\n\n  $json.lead_status = \"qualified\";\n}\n\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        -160
+      ],
+      "id": "07bc6eed-7130-5945-80cb-a391db95e928",
+      "name": "客户评分及分级"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "$json.processed_at = new Date().toISOString();\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -160
+      ],
+      "id": "215b78c7-f0f9-58b1-ba62-1d264bf10e1f",
+      "name": "添加清洗时间"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "$json.processed = true;\n\n$json.processed_at = new Date().toISOString();\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        208
+      ],
+      "id": "eea2a364-4c85-5921-a3d3-2c81b0bdb255",
+      "name": "标记已经读取过这个数据"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_SOURCE_PROSPECTS",
+          "mode": "list",
+          "cachedResultName": "Source Prospects Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{$json.id}}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "industry_match": false,
+            "whatsapp_available": false,
+            "is_duplicate": false,
+            "processed": true,
+            "rating": 0,
+            "lead_score": 0,
+            "processed_at": "={{$json.processed_at}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "business_type",
+              "displayName": "business_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_status",
+              "displayName": "email_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "industry_match",
+              "displayName": "industry_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_type",
+              "displayName": "phone_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_available",
+              "displayName": "whatsapp_available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_valid",
+              "displayName": "email_valid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_level",
+              "displayName": "lead_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_status",
+              "displayName": "lead_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_duplicate",
+              "displayName": "is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "processed",
+              "displayName": "processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "dryRun": false
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        208
+      ],
+      "id": "12097982-f788-547d-84c7-9c53f74ab6ee",
+      "name": "标记客户写回总表"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "industry_match": false,
+            "whatsapp_available": false,
+            "email_valid": false,
+            "is_duplicate": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "business_type",
+              "displayName": "business_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_status",
+              "displayName": "email_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "industry_match",
+              "displayName": "industry_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_type",
+              "displayName": "phone_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_available",
+              "displayName": "whatsapp_available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_valid",
+              "displayName": "email_valid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_level",
+              "displayName": "lead_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_status",
+              "displayName": "lead_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_duplicate",
+              "displayName": "is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "crm_status",
+              "displayName": "crm_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_action",
+              "displayName": "next_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "next_action_at",
+              "displayName": "next_action_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_contact_channel",
+              "displayName": "last_contact_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_contact_at",
+              "displayName": "last_contact_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_outreach_status",
+              "displayName": "whatsapp_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_message",
+              "displayName": "whatsapp_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_sent_at",
+              "displayName": "whatsapp_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_followup_count",
+              "displayName": "whatsapp_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reply_channel",
+              "displayName": "reply_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "replied_at",
+              "displayName": "replied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "conversation_notes",
+              "displayName": "conversation_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_is_duplicate",
+              "displayName": "email_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_is_duplicate",
+              "displayName": "phone_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        -352
+      ],
+      "id": "782ac43a-36db-55b2-bdd8-0eb9896312fd",
+      "name": "写进干净客户数据表中"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：国家识别与规则配置\n//\n// 当前支持：\n// AE = United Arab Emirates\n// SA = Saudi Arabia\n//\n// 国家名称、区号、电话规则全部集中在这里。\n// 未来新增国家时，只增加一个 COUNTRY_PROFILES 配置，\n// 不修改后面的通用电话清洗逻辑。\n\nconst COUNTRY_PROFILES = {\n  AE: {\n    country_name: \"United Arab Emirates\",\n    dial_code: \"971\",\n    local_trunk_prefix: \"0\",\n\n    country_aliases: [\n      \"ae\",\n      \"uae\",\n      \"united arab emirates\",\n      \"emirates\",\n      \"الإمارات\",\n      \"الإمارات العربية المتحدة\"\n    ],\n\n    location_hints: [\n      \"dubai\",\n      \"abu dhabi\",\n      \"sharjah\",\n      \"ajman\",\n      \"al ain\",\n      \"ras al khaimah\",\n      \"fujairah\",\n      \"umm al quwain\",\n\n      \"دبي\",\n      \"أبو ظبي\",\n      \"أبوظبي\",\n      \"الشارقة\",\n      \"عجمان\",\n      \"العين\",\n      \"رأس الخيمة\",\n      \"الفجيرة\",\n      \"أم القيوين\"\n    ],\n\n    phone_rules: {\n      // 号码已经去掉国家区号和本地前缀0以后再判断\n\n      // UAE手机：5开头，后面8位数字\n      mobile_patterns: [\n        \"^5\\\\d{8}$\"\n      ],\n\n      // UAE固话：2/3/4/6/7/9开头，后面7位数字\n      landline_patterns: [\n        \"^[234679]\\\\d{7}$\"\n      ],\n\n      // UAE服务热线\n      hotline_patterns: [\n        \"^800\\\\d{3,9}$\",\n        \"^600\\\\d{6}$\"\n      ],\n\n      // UAE短号码\n      short_number_patterns: [\n        \"^\\\\d{3,6}$\"\n      ],\n\n      whatsapp_phone_types: [\n        \"mobile\"\n      ]\n    }\n  },\n\n  SA: {\n    country_name: \"Saudi Arabia\",\n    dial_code: \"966\",\n    local_trunk_prefix: \"0\",\n\n    country_aliases: [\n      \"sa\",\n      \"ksa\",\n      \"saudi\",\n      \"saudi arabia\",\n      \"kingdom of saudi arabia\",\n      \"السعودية\",\n      \"المملكة العربية السعودية\"\n    ],\n\n    location_hints: [\n      \"riyadh\",\n      \"ar riyadh\",\n      \"jeddah\",\n      \"jiddah\",\n      \"dammam\",\n      \"al khobar\",\n      \"khobar\",\n      \"makkah\",\n      \"mecca\",\n      \"madinah\",\n      \"medina\",\n      \"taif\",\n      \"jubail\",\n\n      \"الرياض\",\n      \"جدة\",\n      \"الدمام\",\n      \"الخبر\",\n      \"مكة\",\n      \"المدينة\",\n      \"الطائف\",\n      \"الجبيل\"\n    ],\n\n    phone_rules: {\n      // Saudi手机：5开头，后面8位数字\n      mobile_patterns: [\n        \"^5\\\\d{8}$\"\n      ],\n\n      // Saudi固话：1开头，后面8位数字\n      landline_patterns: [\n        \"^1\\\\d{8}$\"\n      ],\n\n      // Saudi 800和9200服务热线\n      hotline_patterns: [\n        \"^800\\\\d{7}$\",\n        \"^9200\\\\d{5}$\"\n      ],\n\n      // Saudi短号码\n      short_number_patterns: [\n        \"^\\\\d{3,6}$\"\n      ],\n\n      whatsapp_phone_types: [\n        \"mobile\"\n      ]\n    }\n  }\n};\n\n\n// ==================================================\n// 1. 通用文本标准化\n// ==================================================\n\nfunction normalizeText(value) {\n  return (value ?? \"\")\n    .toString()\n    .toLowerCase()\n    .trim()\n    .replace(/[.,;:()[\\]{}]/g, \" \")\n    .replace(/[_-]+/g, \" \")\n    .replace(/\\s+/g, \" \");\n}\n\n\n// 判断完整词或连续短语，减少部分字符误判\nfunction containsPhrase(text, phrase) {\n  if (!text || !phrase) {\n    return false;\n  }\n\n  if (text === phrase) {\n    return true;\n  }\n\n  return (\n    text.startsWith(phrase + \" \") ||\n    text.endsWith(\" \" + phrase) ||\n    text.includes(\" \" + phrase + \" \")\n  );\n}\n\n\n// ==================================================\n// 2. 读取原始数据\n// ==================================================\n\nconst originalCountry = $json.country ?? \"\";\n\nconst countryRaw = normalizeText(originalCountry);\n\nconst locationRaw = normalizeText(\n  [\n    $json.address,\n    $json.state,\n    $json.city\n  ]\n    .filter(value =>\n      value !== null &&\n      value !== undefined &&\n      value !== \"\"\n    )\n    .join(\" \")\n);\n\nconst phoneRaw = ($json.phone ?? \"\")\n  .toString()\n  .trim();\n\nconst phoneDigits = phoneRaw.replace(/\\D/g, \"\");\n\n\n// ==================================================\n// 3. 国家识别\n// 优先级：country字段 → 国际区号 → 地址或城市\n// ==================================================\n\nlet detectedCountryKey = \"\";\nlet detectedBy = \"\";\n\n\n// ---------- 3.1 根据country字段识别 ----------\n\nfor (const [countryKey, profile] of Object.entries(COUNTRY_PROFILES)) {\n  const matched = profile.country_aliases.some(alias => {\n    const normalizedAlias = normalizeText(alias);\n\n    // AE、SA、UAE、KSA等短代码必须完全匹配\n    if (normalizedAlias.length <= 3) {\n      return countryRaw === normalizedAlias;\n    }\n\n    return containsPhrase(countryRaw, normalizedAlias);\n  });\n\n  if (matched) {\n    detectedCountryKey = countryKey;\n    detectedBy = \"country_field\";\n    break;\n  }\n}\n\n\n// ---------- 3.2 根据国际电话区号识别 ----------\n\nif (!detectedCountryKey && phoneDigits) {\n  for (const [countryKey, profile] of Object.entries(COUNTRY_PROFILES)) {\n    const dialCode = profile.dial_code;\n\n    if (\n      phoneDigits.startsWith(dialCode) ||\n      phoneDigits.startsWith(\"00\" + dialCode)\n    ) {\n      detectedCountryKey = countryKey;\n      detectedBy = \"phone_dial_code\";\n      break;\n    }\n  }\n}\n\n\n// ---------- 3.3 根据地址、州、城市识别 ----------\n\nif (!detectedCountryKey && locationRaw) {\n  for (const [countryKey, profile] of Object.entries(COUNTRY_PROFILES)) {\n    const matched = profile.location_hints.some(hint => {\n      const normalizedHint = normalizeText(hint);\n\n      return containsPhrase(\n        locationRaw,\n        normalizedHint\n      );\n    });\n\n    if (matched) {\n      detectedCountryKey = countryKey;\n      detectedBy = \"location_hint\";\n      break;\n    }\n  }\n}\n\n\n// ==================================================\n// 4. 输出识别结果和国家配置\n// ==================================================\n\nif (detectedCountryKey) {\n  const profile = COUNTRY_PROFILES[detectedCountryKey];\n\n  // 正式国家字段\n  $json.country = profile.country_name;\n\n  // 清洗流程临时字段\n  $json.cleaning_country_key = detectedCountryKey;\n  $json.cleaning_dial_code = profile.dial_code;\n  $json.cleaning_local_trunk_prefix =\n    profile.local_trunk_prefix;\n\n  $json.cleaning_country_status = \"supported\";\n  $json.cleaning_country_detected_by = detectedBy;\n\n  // 电话清洗规则\n  $json.cleaning_phone_rules = {\n    mobile_patterns:\n      profile.phone_rules.mobile_patterns,\n\n    landline_patterns:\n      profile.phone_rules.landline_patterns,\n\n    hotline_patterns:\n      profile.phone_rules.hotline_patterns,\n\n    short_number_patterns:\n      profile.phone_rules.short_number_patterns,\n\n    whatsapp_phone_types:\n      profile.phone_rules.whatsapp_phone_types\n  };\n\n} else {\n  // 无法确认国家时，保留原始country\n  $json.country = originalCountry;\n\n  $json.cleaning_country_key = \"\";\n  $json.cleaning_dial_code = \"\";\n  $json.cleaning_local_trunk_prefix = \"\";\n  $json.cleaning_country_status = \"unsupported\";\n  $json.cleaning_country_detected_by = \"\";\n\n  $json.cleaning_phone_rules = {\n    mobile_patterns: [],\n    landline_patterns: [],\n    hotline_patterns: [],\n    short_number_patterns: [],\n    whatsapp_phone_types: []\n  };\n}\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "208fd771-875e-599d-9625-709b25a9140f",
+      "name": "国家识别与规则配置"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 干净的客户数据表实际存在的正式字段\nconst allowedFields = [\n  \"company_name\",\n  \"business_type\",\n  \"phone\",\n  \"website\",\n  \"address\",\n  \"state\",\n  \"country\",\n  \"email\",\n  \"email_status\",\n  \"rating\",\n  \"industry_match\",\n  \"phone_clean\",\n  \"phone_type\",\n  \"whatsapp_available\",\n  \"email_valid\",\n  \"lead_score\",\n  \"lead_level\",\n  \"lead_status\",\n  \"source\",\n  \"notes\",\n  \"reject_reason\",\n  \"is_duplicate\",\n  \"processed_at\",\n\n  \"crm_status\",\n  \"next_action\",\n  \"next_action_at\",\n  \"last_contact_channel\",\n  \"last_contact_at\",\n\n  \"email_outreach_status\",\n  \"email_sent_at\",\n  \"email_followup_count\",\n\n  \"whatsapp_outreach_status\",\n  \"whatsapp_message\",\n  \"whatsapp_sent_at\",\n  \"whatsapp_followup_count\",\n\n  \"reply_status\",\n  \"reply_channel\",\n  \"replied_at\",\n  \"conversation_notes\",\n\n  \"email_message_id\",\n  \"email_thread_id\",\n  \"email_last_reply_content\",\n  \"email_last_reply_at\",\n\n  \"email_intent\",\n  \"email_intent_score\",\n  \"email_ai_summary\",\n  \"email_ai_reply_draft\",\n  \"email_draft_status\",\n\n  \"email_is_duplicate\",\n  \"phone_is_duplicate\"\n];\n\n// 创建一个全新的干净对象\nconst cleanJson = {};\n\n// 只保留目标数据表真实存在的字段\nfor (const field of allowedFields) {\n  if (Object.prototype.hasOwnProperty.call($json, field)) {\n    cleanJson[field] = $json[field];\n  }\n}\n\nreturn cleanJson;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        -352
+      ],
+      "id": "a6f9f362-0ffc-5f54-8f92-4ed23f75af40",
+      "name": "写入前删除系统字段"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    _dedup_source: 'history'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        -352
+      ],
+      "id": "0e7e4f90-7573-58fb-bec7-b728a2c64a86",
+      "name": "标记历史数据"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "matchType": "allConditions",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        320,
+        -352
+      ],
+      "id": "d1abe317-322f-59e3-a5c3-31359fafca8c",
+      "name": "读取干净客户表全部历史记录"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    _dedup_source: 'new'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2512,
+        -160
+      ],
+      "id": "7ac858cd-f9c9-5fb4-9945-28ccd449e052",
+      "name": "标记本批新数据"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2720,
+        -352
+      ],
+      "id": "ce6d81f2-e17f-5b79-b1c0-dfd4f96e0901",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 全球客户数据清洗 V1\n// 节点：历史渠道分别去重\n// Mode：Run Once for All Items\n//\n// 输入：\n// _dedup_source = history  历史干净客户\n// _dedup_source = new      本批新客户\n//\n// 输出：\n// 只输出本批仍然至少有一个新开发渠道的客户\n//\n// 规则：\n// 1. 历史邮箱重复、手机号新：保留，Email跳过\n// 2. 历史手机号重复、邮箱新：保留，WhatsApp跳过\n// 3. 邮箱和手机号都没有新价值：不输出\n// 4. 合并本批次去重结果，不覆盖已有发送状态\n\nconst allItems = $input.all();\n\nfunction normalizeEmail(value) {\n  return String(value ?? \"\")\n    .normalize(\"NFKC\")\n    .trim()\n    .toLowerCase();\n}\n\nfunction normalizePhone(value) {\n  return String(value ?? \"\")\n    .replace(/\\D/g, \"\");\n}\n\nfunction toBoolean(value) {\n  return (\n    value === true ||\n    value === 1 ||\n    value === \"1\" ||\n    String(value ?? \"\").toLowerCase() === \"true\"\n  );\n}\n\nfunction isEmptyStatus(value) {\n  return String(value ?? \"\").trim() === \"\";\n}\n\nfunction isValidEmailKey(value) {\n  const email = normalizeEmail(value);\n\n  return (\n    email !== \"\" &&\n    email !== \"__no_email__\" &&\n    email.includes(\"@\")\n  );\n}\n\nfunction isValidPhoneKey(value) {\n  const phone = normalizePhone(value);\n\n  return (\n    phone.length >= 8 &&\n    phone.length <= 15\n  );\n}\n\n// ==================================================\n// 1. 分离历史数据和本批新数据\n// ==================================================\n\nconst historyRows = allItems\n  .map(item => item.json)\n  .filter(row => row._dedup_source === \"history\");\n\nconst newRows = allItems\n  .map(item => item.json)\n  .filter(row => row._dedup_source === \"new\");\n\n// ==================================================\n// 2. 建立历史邮箱和历史手机号集合\n// ==================================================\n\nconst historicalEmails = new Set();\nconst historicalPhones = new Set();\n\nfor (const row of historyRows) {\n  const email = normalizeEmail(row.email);\n  const phone = normalizePhone(\n    row.phone_clean || row.phone\n  );\n\n  if (isValidEmailKey(email)) {\n    historicalEmails.add(email);\n  }\n\n  if (isValidPhoneKey(phone)) {\n    historicalPhones.add(phone);\n  }\n}\n\n// ==================================================\n// 3. 逐条检查本批新客户\n// ==================================================\n\nconst output = [];\n\nfor (const originalRow of newRows) {\n  const json = { ...originalRow };\n\n  const email = normalizeEmail(json.email);\n  const phone = normalizePhone(\n    json.phone_clean || json.phone\n  );\n\n  const emailStatus = String(\n    json.email_status ?? \"\"\n  )\n    .trim()\n    .toUpperCase();\n\n  const phoneType = String(\n    json.phone_type ?? \"\"\n  )\n    .trim()\n    .toLowerCase();\n\n  // Email发送流程只开发可正常接收的邮箱\n  const hasUsableEmail =\n    isValidEmailKey(email) &&\n    (\n      emailStatus === \"RECEIVING\" ||\n      (\n        emailStatus === \"\" &&\n        toBoolean(json.email_valid)\n      )\n    );\n\n  // WhatsApp发送流程只开发手机号码\n  const hasUsablePhone =\n    isValidPhoneKey(phone) &&\n    phoneType === \"mobile\";\n\n  // 当前批次去重节点已经产生的结果\n  const batchEmailDuplicate =\n    toBoolean(json.email_is_duplicate);\n\n  const batchPhoneDuplicate =\n    toBoolean(json.phone_is_duplicate);\n\n  // 与历史干净客户表进行比较\n  const historyEmailDuplicate =\n    hasUsableEmail &&\n    historicalEmails.has(email);\n\n  const historyPhoneDuplicate =\n    hasUsablePhone &&\n    historicalPhones.has(phone);\n\n  // 本批重复或历史重复，任一成立即为渠道重复\n  const emailDuplicate =\n    batchEmailDuplicate ||\n    historyEmailDuplicate;\n\n  const phoneDuplicate =\n    batchPhoneDuplicate ||\n    historyPhoneDuplicate;\n\n  json.email_is_duplicate =\n    emailDuplicate;\n\n  json.phone_is_duplicate =\n    phoneDuplicate;\n\n  // 临时检查字段，后面写入前会被删除\n  json._history_email_duplicate =\n    historyEmailDuplicate;\n\n  json._history_phone_duplicate =\n    historyPhoneDuplicate;\n\n  // 邮箱重复，只关闭Email渠道\n  if (\n    emailDuplicate &&\n    isEmptyStatus(json.email_outreach_status)\n  ) {\n    json.email_outreach_status =\n      \"skipped_duplicate_email\";\n  }\n\n  // 手机号重复，只关闭WhatsApp渠道\n  if (\n    phoneDuplicate &&\n    isEmptyStatus(json.whatsapp_outreach_status)\n  ) {\n    json.whatsapp_outreach_status =\n      \"skipped_duplicate_phone\";\n  }\n\n  // 检查是否还有新的可开发渠道\n  const hasNewEmail =\n    hasUsableEmail &&\n    !emailDuplicate;\n\n  const hasNewPhone =\n    hasUsablePhone &&\n    !phoneDuplicate;\n\n  const hasAnyNewChannel =\n    hasNewEmail ||\n    hasNewPhone;\n\n  // 至少有一个新渠道，继续写入干净客户表\n  if (hasAnyNewChannel) {\n    json.is_duplicate = false;\n\n    if (\n      String(json.reject_reason ?? \"\")\n        .startsWith(\"duplicate_\")\n    ) {\n      json.reject_reason = \"\";\n    }\n\n    output.push({\n      json\n    });\n\n    continue;\n  }\n\n  // 邮箱和手机号都没有新价值时，不输出\n  // 这条记录不会写入干净客户表\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2928,
+        -352
+      ],
+      "id": "b99c2ff4-826b-519e-a9b7-f3ff3efd4dc7",
+      "name": "历史渠道分别去重"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "读取干净客户表全部历史记录",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s)": {
+      "main": [
+        [
+          {
+            "node": "国家识别与规则配置",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "类型清洗": {
+      "main": [
+        [
+          {
+            "node": "邮箱清理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "邮箱清理": {
+      "main": [
+        [
+          {
+            "node": "电话清洗",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "电话清洗": {
+      "main": [
+        [
+          {
+            "node": "标记已经读取过这个数据",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "去重复标记",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "去重复标记": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "客户评分及分级",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "客户评分及分级": {
+      "main": [
+        [
+          {
+            "node": "添加清洗时间",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "添加清洗时间": {
+      "main": [
+        [
+          {
+            "node": "标记本批新数据",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "标记已经读取过这个数据": {
+      "main": [
+        [
+          {
+            "node": "标记客户写回总表",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "国家识别与规则配置": {
+      "main": [
+        [
+          {
+            "node": "类型清洗",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "写入前删除系统字段": {
+      "main": [
+        [
+          {
+            "node": "写进干净客户数据表中",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "读取干净客户表全部历史记录": {
+      "main": [
+        [
+          {
+            "node": "标记历史数据",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "标记本批新数据": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "标记历史数据": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "历史渠道分别去重",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "历史渠道分别去重": {
+      "main": [
+        [
+          {
+            "node": "写入前删除系统字段",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "tags": []
+}

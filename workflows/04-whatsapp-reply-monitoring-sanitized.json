@@ -1,0 +1,544 @@
+{
+  "name": "WhatsApp Reply Monitoring (Sanitized)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8aa1462a-441c-57c9-94e6-ccf55be2c5c9",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "75b22e02-6035-44d2-ac53-4e3b1a942856",
+              "leftValue": "={{$json.whatsapp_outreach_status}}",
+              "rightValue": "replied",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2128,
+        16
+      ],
+      "id": "ab9509df-b319-5a51-9c57-7a270a5e85f1",
+      "name": "IF - Has WhatsApp Reply"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_WHATSAPP_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "WhatsApp Conversation Table"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "whatsapp_outreach_status",
+              "keyValue": "sent"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "85f054b4-c429-59bb-8226-25ae7c046f7e",
+      "name": "读取客户"
+    },
+    {
+      "parameters": {
+        "jsCode": "const customers = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n\n  if (!j.phone_clean) continue;\n\n  customers.push({\n    id: j.id,\n    customer_id: j.customer_id || '',\n    phone_clean: j.phone_clean,\n    last_list_hash: j.last_list_hash || '',\n    whatsapp_chat_title: j.whatsapp_chat_title || ''\n  });\n}\n\nreturn [\n  {\n    json: {\n      limit: 100,\n      customers\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "cf98fcb2-54f9-5135-81a9-95685a79be0c",
+      "name": "提取手机号"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// 当前正在处理的客户（Loop Over Items）\nconst current = $('Loop Over Items').first().json;\n\nconst output = [];\n\n\n/* ===========================================\n   人工回复（Customer Reply）\n=========================================== */\n\nfor (const item of (data.replied_results || [])) {\n\n  output.push({\n    json: {\n\n      customer_id: current.customer_id,\n\n      phone_clean: current.phone_clean,\n\n      whatsapp_outreach_status: \"replied\",\n\n      whatsapp_last_reply_content:\n        item.last_customer_message || \"\",\n\n      whatsapp_last_reply_at:\n        new Date().toISOString(),\n\n      whatsapp_conversation_status:\n        \"customer_replied\",\n\n      reply_type:\n        \"manual_reply\",\n\n      updated_at:\n        new Date().toISOString(),\n\n      full_data: item\n\n    }\n  });\n\n}\n\n\n\n/* ===========================================\n   自动回复（Auto Reply）\n=========================================== */\n\nfor (const item of (data.auto_reply_results || [])) {\n\n  output.push({\n    json: {\n\n      customer_id: current.customer_id,\n\n      phone_clean: current.phone_clean,\n\n      whatsapp_outreach_status: \"replied\",\n\n      whatsapp_last_reply_content:\n        item.last_customer_message || \"\",\n\n      whatsapp_last_reply_at:\n        new Date().toISOString(),\n\n      whatsapp_conversation_status:\n        \"auto_reply\",\n\n      reply_type:\n        \"auto_reply\",\n\n      updated_at:\n        new Date().toISOString(),\n\n      full_data: item\n\n    }\n  });\n\n}\n\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        16
+      ],
+      "id": "d942d831-51f7-508a-9fbf-6e9db7b9c542",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_WHATSAPP_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "WhatsApp Conversation Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone_clean",
+              "keyValue": "={{$json.phone_clean}}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "whatsapp_last_reply_content": "={{$json.whatsapp_last_reply_content}}",
+            "whatsapp_last_reply_at": "={{$json.whatsapp_last_reply_at}}",
+            "whatsapp_conversation_status": "={{$json.whatsapp_conversation_status}}",
+            "whatsapp_outreach_status": "={{$json.whatsapp_outreach_status}}",
+            "updated_at": "={{$json.updated_at}}",
+            "customer_id": "={{$json.customer_id}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "customer_id",
+              "displayName": "customer_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_chat_id",
+              "displayName": "whatsapp_chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_outreach_status",
+              "displayName": "whatsapp_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_message",
+              "displayName": "whatsapp_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_sent_at",
+              "displayName": "whatsapp_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_followup_count",
+              "displayName": "whatsapp_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_last_reply_content",
+              "displayName": "whatsapp_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_last_reply_at",
+              "displayName": "whatsapp_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_intent",
+              "displayName": "whatsapp_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_intent_score",
+              "displayName": "whatsapp_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_ai_summary",
+              "displayName": "whatsapp_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_ai_reply_draft",
+              "displayName": "whatsapp_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_draft_status",
+              "displayName": "whatsapp_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_conversation_status",
+              "displayName": "whatsapp_conversation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        0
+      ],
+      "id": "78bf93fc-1679-5cbd-a116-26c983806956",
+      "name": "Update row(s)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:YOUR_PORT/watch-chat-list",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        640,
+        0
+      ],
+      "id": "4cae500c-8acd-5275-9932-88195c6849ca",
+      "name": "watch-chat-list"
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = [];\n\nfor (const item of $input.all()) {\n  const c = item.json;\n\n  result.push({\n    json: {\n      customer_id: c.customer_id,\n\n      phone_clean: c.phone_clean,\n\n      chat_title: c.chat_title,\n\n      chat_index: c.chat_index,\n\n      list_time: c.list_time,\n\n      list_preview: c.list_preview,\n\n      list_hash: c.list_hash,\n\n      old_list_hash: c.old_list_hash,\n\n      preview_type: c.preview_type,\n\n      has_unread: c.has_unread,\n\n      has_outgoing_icon: c.has_outgoing_icon,\n\n      is_changed: c.is_changed,\n\n      should_deep_read: c.should_deep_read\n    }\n  });\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "259cab5d-0f83-5f14-adda-05623e5d0ead",
+      "name": "Code（转换）"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:YOUR_PORT/read-target-chats",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"phones\": [$json.phone_clean]\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        16
+      ],
+      "id": "5b6e96df-86ac-54ea-adb9-d22ee58af987",
+      "name": "read-target-chats"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ==========================================\n// V23 Industrial\n// 展开 watch-chat-list 返回的 deep_read_candidates\n// 每个 candidate 输出成一个 Item\n// ==========================================\n\nconst result = [];\n\nconst data = $input.first().json;\n\nconst candidates = data.deep_read_candidates || [];\n\nfor (const c of candidates) {\n\n  result.push({\n    json: {\n\n      customer_id: c.customer_id,\n\n      phone_clean: c.phone_clean,\n\n      chat_title: c.chat_title,\n\n      chat_index: c.chat_index,\n\n      list_time: c.list_time,\n\n      list_preview: c.list_preview,\n\n      list_hash: c.list_hash,\n\n      old_list_hash: c.old_list_hash,\n\n      preview_type: c.preview_type,\n\n      has_unread: c.has_unread,\n\n      has_outgoing_icon: c.has_outgoing_icon,\n\n      is_changed: c.is_changed,\n\n      should_deep_read: c.should_deep_read\n\n    }\n  });\n\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        0
+      ],
+      "id": "641e74b1-aa2f-5d39-b9c6-dec69e51064e",
+      "name": "展开 deep_read_candidates"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "fe00c460-7a0b-545f-992f-bb3f3eafb4d9",
+      "name": "Loop Over Items"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "读取客户",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "读取客户": {
+      "main": [
+        [
+          {
+            "node": "提取手机号",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "提取手机号": {
+      "main": [
+        [
+          {
+            "node": "watch-chat-list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "IF - Has WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "watch-chat-list": {
+      "main": [
+        [
+          {
+            "node": "展开 deep_read_candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code（转换）": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read-target-chats": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "展开 deep_read_candidates": {
+      "main": [
+        [
+          {
+            "node": "Code（转换）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "read-target-chats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row(s)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}

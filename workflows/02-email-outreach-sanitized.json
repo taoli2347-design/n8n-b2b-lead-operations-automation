@@ -1,0 +1,2274 @@
+{
+  "name": "Scheduled Email Outreach (Sanitized)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -304,
+        -16
+      ],
+      "id": "f2ce099e-866c-5900-9490-05a7c743f024",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e4344023-e3a5-4fe3-874f-4259ab5626c5",
+              "leftValue": "={{$now.setZone(\"Asia/Dubai\").hour}}",
+              "rightValue": 9,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "4d38992d-c938-491a-8fa7-dc3d155cb192",
+              "leftValue": "={{$now.setZone(\"Asia/Dubai\").hour}}",
+              "rightValue": 18,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -96,
+        -16
+      ],
+      "id": "86458290-9bbb-5827-9980-45fa10b37995",
+      "name": "读取迪拜时间"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_status",
+              "keyValue": "RECEIVING"
+            },
+            {
+              "keyName": "email_outreach_status",
+              "condition": "isEmpty"
+            }
+          ]
+        },
+        "limit": 1,
+        "orderBy": true,
+        "orderByColumn": "lead_score"
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        112,
+        -48
+      ],
+      "id": "aa8703c0-3950-5ab6-9945-a0f3efc50588",
+      "name": "读取一个客户"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$json.email}}",
+        "subject": "={{$json.email_subject}}",
+        "emailType": "text",
+        "message": "={{$json.email_body}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        -48
+      ],
+      "id": "1310e9c1-05c7-5b5e-8c57-a93f44b82835",
+      "name": "Send a message",
+      "webhookId": "ebc50a9a-4941-5b6b-88f3-c2a42b910c77",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0f8ec053-1d61-4a17-962b-46df7d48343e",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "bcb59709-b399-4673-bf3f-83afcb13efb0",
+              "leftValue": "={{$json.threadId}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1296,
+        -48
+      ],
+      "id": "7b830e9c-6ac8-54c2-8fd4-cbcc5d838841",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_EMAIL_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "Email Conversation Table"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_outreach_status": "sent",
+            "email_sent_at": "={{$now.toISO()}}",
+            "email_followup_count": 1,
+            "email_message_id": "={{$node[\"Send a message\"].json.id}}",
+            "email_thread_id": "={{$node[\"Send a message\"].json.threadId}}",
+            "updated_at": "={{$now.toISO()}}",
+            "customer_id": "={{$('读取一个客户').item.json.id}}",
+            "email_reply_count": 0,
+            "email_intent_score": 0,
+            "company_name": "={{$('读取一个客户').item.json.company_name}}",
+            "email": "={{$('读取一个客户').item.json.email}}",
+            "created_at": "={{$now.toISO()}}",
+            "email_conversation_status": "waiting_reply"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "customer_id",
+              "displayName": "customer_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_reply_count",
+              "displayName": "email_reply_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_conversation_status",
+              "displayName": "email_conversation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1728,
+        -80
+      ],
+      "id": "bf73dda4-9a07-5e62-b78f-a6112f1d13ae",
+      "name": "Insert row"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('读取一个客户').item.json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_outreach_status": "sent",
+            "email_sent_at": "={{$now.toISO()}}",
+            "email_followup_count": 1,
+            "email_message_id": "={{$json.id}}",
+            "email_thread_id": "={{$json.threadId}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "business_type",
+              "displayName": "business_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_status",
+              "displayName": "email_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "industry_match",
+              "displayName": "industry_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_type",
+              "displayName": "phone_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_available",
+              "displayName": "whatsapp_available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_valid",
+              "displayName": "email_valid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_level",
+              "displayName": "lead_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_status",
+              "displayName": "lead_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_duplicate",
+              "displayName": "is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "crm_status",
+              "displayName": "crm_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action",
+              "displayName": "next_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action_at",
+              "displayName": "next_action_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_channel",
+              "displayName": "last_contact_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_at",
+              "displayName": "last_contact_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_outreach_status",
+              "displayName": "whatsapp_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_message",
+              "displayName": "whatsapp_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_sent_at",
+              "displayName": "whatsapp_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_followup_count",
+              "displayName": "whatsapp_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_channel",
+              "displayName": "reply_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "replied_at",
+              "displayName": "replied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "conversation_notes",
+              "displayName": "conversation_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_is_duplicate",
+              "displayName": "email_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone_is_duplicate",
+              "displayName": "phone_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        -80
+      ],
+      "id": "5dc2542e-1840-5188-a0c3-062e18bab612",
+      "name": "Update row(s)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 统一邮箱格式，防止大小写和前后空格造成重复发送\nconst email = String($json.email ?? '')\n  .trim()\n  .toLowerCase();\n\n$json.email = email;\n\n// 没有邮箱时直接阻止继续发送\nif (!email) {\n  return null;\n}\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -48
+      ],
+      "id": "69f3e304-4882-5139-b2c2-60582574bd34",
+      "name": "标准化Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================\n// Email 全球多语言首轮开发信 V1.0\n// 节点：随机邮件模板\n// Mode：Run Once for Each Item\n//\n// 前置节点：语言路由\n//\n// 结构：\n// 本国语言开场 5选1\n// +\n// English Email 主体 5选1\n//\n// Email Subject 始终使用英文\n//\n// 支持：\n// ar_en  阿拉伯语 + English\n// es_en  西班牙语 + English\n// fr_en  法语 + English\n// de_en  德语 + English\n// it_en  意大利语 + English\n// pt_en  葡萄牙语 + English\n// tr_en  土耳其语 + English\n// ru_en  俄语 + English\n// ja_en  日语 + English\n// ko_en  韩语 + English\n// id_en  印尼语 + English\n// th_en  泰语 + English\n// vi_en  越南语 + English\n// he_en  希伯来语 + English\n// en     English only\n// =====================================================\n\n\n// -----------------------------------------------------\n// 1. 读取语言路由结果\n// -----------------------------------------------------\n\nconst languageMode = String(\n  $json.language_mode ?? \"en\"\n).trim();\n\nconst countryKey = String(\n  $json.country_key ?? \"other\"\n).trim();\n\n\n// -----------------------------------------------------\n// 2. 本国语言开场库\n// 每种语言 5 个版本\n// -----------------------------------------------------\n\nconst openingLibraries = {\n\n  // ===================================================\n  // 阿拉伯语\n  // ===================================================\n  ar_en: [\n\n`مرحباً،\n\nنحن مورد مجوهرات فضة عيار 925 من الصين.\n\nلفت نشاطكم في مجال المجوهرات انتباهنا، ونعتقد أن بعض تصاميمنا قد تناسب عملاءكم.\n\nيسعدنا أن نشارككم بعض المنتجات للاطلاع عليها.`,\n\n`أهلاً وسهلاً،\n\nنحن متخصصون في مجوهرات الفضة عيار 925 بتصاميم عصرية من الصين.\n\nاطلعنا على نشاطكم في مجال المجوهرات وأحببنا أن نعرّفكم على بعض منتجاتنا.\n\nيسعدنا إرسال بعض التصاميم لكم.`,\n\n`مرحباً،\n\nنقوم بتوريد مجوهرات فضة عيار 925، بما في ذلك الخواتم والأقراط والأساور والقلائد.\n\nنعتقد أن بعض موديلاتنا قد تكون مناسبة لمتجركم وعملائكم.\n\nيسعدنا مشاركة بعض المنتجات معكم.`,\n\n`مرحباً،\n\nنحن شركة صينية متخصصة في المجوهرات العصرية من الفضة عيار 925.\n\nشاهدنا نشاطكم في مجال المجوهرات ونرغب في مشاركة بعض التصاميم الجديدة معكم.\n\nنأمل أن تنال منتجاتنا اهتمامكم.`,\n\n`أهلاً،\n\nلدينا مجموعة متنوعة من مجوهرات الفضة عيار 925 بتصاميم عصرية وأحجار CZ.\n\nنعتقد أن بعض هذه المنتجات قد تكون مناسبة لنشاطكم.\n\nيسعدنا إرسال بعض الموديلات لكم للاطلاع عليها.`\n\n  ],\n\n\n  // ===================================================\n  // 西班牙语\n  // ===================================================\n  es_en: [\n\n`Hola,\n\nSomos proveedores de joyería de plata 925 de China.\n\nVimos su negocio de joyería y creemos que algunos de nuestros diseños podrían ser interesantes para sus clientes.\n\nNos gustaría compartir algunos productos con usted.`,\n\n`Hola,\n\nNos especializamos en joyería moderna de plata 925 fabricada en China.\n\nEncontramos su negocio de joyería y pensamos que algunos de nuestros productos podrían encajar bien con su tienda.\n\nNos gustaría presentarle algunos diseños.`,\n\n`Buenos días,\n\nProducimos anillos, pendientes, colgantes y pulseras de plata 925 con diseños modernos.\n\nCreemos que algunos de nuestros productos podrían ser adecuados para su negocio.\n\nNos gustaría compartir algunos modelos con usted.`,\n\n`Hola,\n\nSomos un proveedor chino especializado en joyería de plata 925 con diseños modernos de CZ.\n\nSu negocio llamó nuestra atención y nos gustaría compartir algunos modelos con usted.`,\n\n`Hola,\n\nTenemos una amplia colección de joyería de plata 925 para tiendas y vendedores de joyería.\n\nCreemos que algunos de nuestros diseños podrían ser adecuados para sus clientes.\n\nSerá un placer mostrarle algunos productos.`\n\n  ],\n\n\n  // ===================================================\n  // 法语\n  // ===================================================\n  fr_en: [\n\n`Bonjour,\n\nNous sommes un fournisseur chinois de bijoux en argent 925.\n\nVotre activité de bijouterie a retenu notre attention et nous pensons que certains de nos modèles pourraient intéresser vos clients.\n\nNous serions ravis de vous présenter quelques produits.`,\n\n`Bonjour,\n\nNous sommes spécialisés dans les bijoux modernes en argent 925 fabriqués en Chine.\n\nNous avons découvert votre activité et aimerions vous présenter quelques-uns de nos modèles.`,\n\n`Bonjour,\n\nNous produisons des bagues, boucles d'oreilles, pendentifs et bracelets en argent 925.\n\nCertains de nos modèles pourraient convenir à votre boutique.\n\nNous aimerions vous présenter quelques produits.`,\n\n`Bonjour,\n\nNous sommes un fournisseur de bijoux en argent 925 avec des designs modernes en CZ.\n\nVotre activité nous a intéressés et nous aimerions partager quelques nouveautés avec vous.`,\n\n`Bonjour,\n\nNous proposons une large gamme de bijoux modernes en argent 925 pour les bijouteries et les vendeurs professionnels.\n\nNous serions heureux de vous présenter quelques modèles.`\n\n  ],\n\n\n  // ===================================================\n  // 德语\n  // ===================================================\n  de_en: [\n\n`Hallo,\n\nwir sind ein chinesischer Anbieter von 925er Silberschmuck.\n\nIhr Schmuckgeschäft ist uns aufgefallen und wir glauben, dass einige unserer Designs gut zu Ihren Kunden passen könnten.\n\nGerne stellen wir Ihnen einige Produkte vor.`,\n\n`Hallo,\n\nwir sind auf modernen 925er Silberschmuck aus China spezialisiert.\n\nWir haben Ihr Schmuckgeschäft entdeckt und würden Ihnen gerne einige unserer Designs vorstellen.`,\n\n`Guten Tag,\n\nwir produzieren Ringe, Ohrringe, Anhänger und Armbänder aus 925er Silber.\n\nEinige unserer Modelle könnten gut zu Ihrem Sortiment passen.\n\nGerne zeigen wir Ihnen einige Produkte.`,\n\n`Hallo,\n\nwir liefern modernen 925er Silberschmuck mit CZ-Designs für Schmuckgeschäfte und Händler.\n\nIhr Geschäft hat unser Interesse geweckt und wir würden Ihnen gerne einige aktuelle Modelle vorstellen.`,\n\n`Hallo,\n\nwir haben eine große Auswahl an modernem 925er Silberschmuck.\n\nWir glauben, dass einige unserer Produkte für Ihre Kunden interessant sein könnten.\n\nGerne stellen wir Ihnen einige Designs vor.`\n\n  ],\n\n\n  // ===================================================\n  // 意大利语\n  // ===================================================\n  it_en: [\n\n`Salve,\n\nsiamo un fornitore cinese di gioielli in argento 925.\n\nAbbiamo visto la vostra attività e pensiamo che alcuni dei nostri modelli potrebbero interessare i vostri clienti.\n\nSaremmo lieti di mostrarvi alcuni prodotti.`,\n\n`Salve,\n\nsiamo specializzati in gioielli moderni in argento 925 prodotti in Cina.\n\nLa vostra attività ha attirato la nostra attenzione e vorremmo presentarvi alcuni modelli.`,\n\n`Buongiorno,\n\nproduciamo anelli, orecchini, pendenti e bracciali in argento 925.\n\nPensiamo che alcuni prodotti potrebbero essere adatti al vostro assortimento.\n\nVorremmo presentarvi alcuni modelli.`,\n\n`Salve,\n\nforniamo gioielli in argento 925 con moderni design CZ.\n\nAbbiamo scoperto la vostra attività e vorremmo condividere alcune novità con voi.`,\n\n`Buongiorno,\n\ndisponiamo di una vasta collezione di gioielli moderni in argento 925.\n\nSaremmo lieti di presentarvi alcuni modelli che potrebbero interessare i vostri clienti.`\n\n  ],\n\n\n  // ===================================================\n  // 葡萄牙语\n  // ===================================================\n  pt_en: [\n\n`Olá,\n\nsomos fornecedores de joias em prata 925 da China.\n\nConhecemos o seu negócio e acreditamos que alguns dos nossos modelos podem interessar aos seus clientes.\n\nGostaríamos de compartilhar alguns produtos com você.`,\n\n`Olá,\n\nsomos especializados em joias modernas de prata 925 produzidas na China.\n\nSeu negócio chamou nossa atenção e gostaríamos de apresentar alguns dos nossos modelos.`,\n\n`Bom dia,\n\nproduzimos anéis, brincos, pingentes e pulseiras em prata 925.\n\nAcreditamos que alguns dos nossos produtos podem combinar com a sua loja.\n\nGostaríamos de apresentar alguns modelos.`,\n\n`Olá,\n\nfornecemos joias de prata 925 com modernos designs em CZ.\n\nEncontramos sua empresa e gostaríamos de compartilhar alguns lançamentos com você.`,\n\n`Olá,\n\ntemos uma ampla coleção de joias modernas em prata 925.\n\nSerá um prazer apresentar alguns modelos que podem ser interessantes para seus clientes.`\n\n  ],\n\n\n  // ===================================================\n  // 土耳其语\n  // ===================================================\n  tr_en: [\n\n`Merhaba,\n\nÇin'den 925 ayar gümüş takı tedarikçisiyiz.\n\nTakı işletmenizi gördük ve bazı tasarımlarımızın müşterilerinize uygun olabileceğini düşünüyoruz.\n\nSize birkaç ürünümüzü tanıtmak isteriz.`,\n\n`Merhaba,\n\nmodern 925 ayar gümüş takılar konusunda uzmanız.\n\nİşletmeniz dikkatimizi çekti ve bazı modellerimizi sizinle paylaşmak isteriz.`,\n\n`Merhaba,\n\n925 ayar gümüş yüzük, küpe, kolye ucu ve bileklik üretiyoruz.\n\nBazı ürünlerimizin mağazanıza uygun olabileceğini düşünüyoruz.\n\nSize birkaç model tanıtmak isteriz.`,\n\n`Merhaba,\n\nmodern CZ tasarımlı 925 ayar gümüş takılar tedarik ediyoruz.\n\nTakı işletmenizi gördük ve yeni modellerimizden bazılarını paylaşmak isteriz.`,\n\n`Merhaba,\n\ngeniş bir modern 925 ayar gümüş takı koleksiyonumuz bulunuyor.\n\nBazı modellerimizin müşterilerinizin ilgisini çekebileceğini düşünüyoruz.\n\nSize bazı tasarımlarımızı göstermek isteriz.`\n\n  ],\n\n\n  // ===================================================\n  // 俄语\n  // ===================================================\n  ru_en: [\n\n`Здравствуйте,\n\nмы поставщик ювелирных изделий из серебра 925 пробы из Китая.\n\nМы обратили внимание на ваш ювелирный бизнес и думаем, что некоторые наши модели могут заинтересовать ваших клиентов.\n\nБудем рады представить вам несколько изделий.`,\n\n`Здравствуйте,\n\nмы специализируемся на современных украшениях из серебра 925 пробы.\n\nВаш бизнес привлек наше внимание, и мы хотели бы представить несколько наших моделей.`,\n\n`Добрый день,\n\nмы производим кольца, серьги, подвески и браслеты из серебра 925 пробы.\n\nНекоторые изделия могут хорошо подойти для вашего магазина.\n\nМы хотели бы показать вам несколько моделей.`,\n\n`Здравствуйте,\n\nмы поставляем современные украшения из серебра 925 пробы с дизайнами CZ.\n\nМы хотели бы поделиться с вами несколькими новыми моделями.`,\n\n`Здравствуйте,\n\nу нас большой выбор современных украшений из серебра 925 пробы.\n\nМы думаем, что некоторые модели могут быть интересны вашим клиентам.\n\nБудем рады представить несколько вариантов.`\n\n  ],\n\n\n  // ===================================================\n  // 日语\n  // ===================================================\n  ja_en: [\n\n`こんにちは。\n\n私たちは中国の925シルバージュエリーサプライヤーです。\n\n御社のジュエリービジネスを拝見し、当社の商品がお客様に合う可能性があると思い、ご連絡しました。\n\nいくつかの商品をご紹介できれば幸いです。`,\n\n`こんにちは。\n\n中国でモダンな925シルバージュエリーを製造しています。\n\n御社のジュエリー事業に興味を持ち、いくつかのデザインをご紹介したいと思いました。`,\n\n`はじめまして。\n\n925シルバーのリング、ピアス、ペンダント、ブレスレットなどを製造しています。\n\n御社のお客様に合う商品があるかもしれません。\n\nいくつかご紹介させていただければと思います。`,\n\n`こんにちは。\n\n私たちはCZデザインを中心とした925シルバージュエリーを中国から供給しています。\n\n新しいデザインをいくつかご紹介できればと思います。`,\n\n`こんにちは。\n\nモダンな925シルバージュエリーを幅広く取り扱っています。\n\n御社のお客様に興味を持っていただけるデザインがあると思います。\n\nいくつかの商品をご紹介させてください。`\n\n  ],\n\n\n  // ===================================================\n  // 韩语\n  // ===================================================\n  ko_en: [\n\n`안녕하세요.\n\n저희는 중국의 925 실버 주얼리 공급업체입니다.\n\n귀사의 주얼리 비즈니스를 보고 저희 제품 중 일부가 고객분들에게 잘 맞을 수 있다고 생각했습니다.\n\n몇 가지 제품을 소개해 드리고 싶습니다.`,\n\n`안녕하세요.\n\n저희는 중국에서 모던한 925 실버 주얼리를 생산하고 있습니다.\n\n귀사의 비즈니스가 눈에 띄어 몇 가지 디자인을 소개해 드리고 싶습니다.`,\n\n`안녕하세요.\n\n925 실버 반지, 귀걸이, 펜던트와 팔찌를 생산하고 있습니다.\n\n저희 제품 중 일부가 귀사의 매장에 잘 맞을 수 있다고 생각합니다.\n\n몇 가지 제품을 소개해 드리고 싶습니다.`,\n\n`안녕하세요.\n\n저희는 모던한 CZ 디자인의 925 실버 주얼리를 공급하고 있습니다.\n\n새로운 디자인 중 몇 가지를 공유하고 싶습니다.`,\n\n`안녕하세요.\n\n다양한 모던 925 실버 주얼리 컬렉션을 보유하고 있습니다.\n\n귀사의 고객분들이 관심을 가질 만한 디자인이 있을 것 같습니다.\n\n몇 가지를 소개해 드리겠습니다.`\n\n  ],\n\n\n  // ===================================================\n  // 印尼语\n  // ===================================================\n  id_en: [\n\n`Halo,\n\nkami adalah pemasok perhiasan perak 925 dari China.\n\nKami melihat bisnis perhiasan Anda dan merasa beberapa desain kami mungkin cocok untuk pelanggan Anda.\n\nKami ingin memperkenalkan beberapa produk kepada Anda.`,\n\n`Halo,\n\nkami fokus pada perhiasan perak 925 modern yang diproduksi di China.\n\nBisnis Anda menarik perhatian kami dan kami ingin memperkenalkan beberapa desain.`,\n\n`Halo,\n\nkami memproduksi cincin, anting, liontin dan gelang dari perak 925.\n\nBeberapa produk kami mungkin cocok untuk toko Anda.\n\nKami ingin memperkenalkan beberapa model.`,\n\n`Halo,\n\nkami menyediakan perhiasan perak 925 dengan desain CZ modern.\n\nKami ingin membagikan beberapa desain terbaru kepada Anda.`,\n\n`Halo,\n\nkami memiliki berbagai koleksi perhiasan perak 925 modern.\n\nKami merasa beberapa model dapat menarik bagi pelanggan Anda.\n\nDengan senang hati kami akan memperkenalkan beberapa desain.`\n\n  ],\n\n\n  // ===================================================\n  // 泰语\n  // ===================================================\n  th_en: [\n\n`สวัสดีครับ\n\nเราเป็นผู้จำหน่ายเครื่องประดับเงิน 925 จากประเทศจีน\n\nเราเห็นธุรกิจเครื่องประดับของคุณและคิดว่าสินค้าบางแบบของเราอาจเหมาะกับลูกค้าของคุณ\n\nเรายินดีแนะนำสินค้าบางแบบให้คุณดูครับ`,\n\n`สวัสดีครับ\n\nเราผลิตเครื่องประดับเงิน 925 ดีไซน์ทันสมัยจากประเทศจีน\n\nธุรกิจของคุณน่าสนใจมาก และเราอยากแนะนำสินค้าบางแบบให้คุณรู้จัก`,\n\n`สวัสดีครับ\n\nเราผลิตแหวน ต่างหู จี้ และสร้อยข้อมือเงิน 925\n\nเราคิดว่าสินค้าบางแบบอาจเหมาะกับร้านของคุณ\n\nเรายินดีแนะนำสินค้าบางรุ่นครับ`,\n\n`สวัสดีครับ\n\nเราเป็นผู้จำหน่ายเครื่องประดับเงิน 925 พร้อมดีไซน์ CZ ที่ทันสมัย\n\nเราอยากแชร์สินค้ารุ่นใหม่บางแบบให้คุณดู`,\n\n`สวัสดีครับ\n\nเรามีเครื่องประดับเงิน 925 ดีไซน์ทันสมัยหลายแบบ\n\nคิดว่าบางรุ่นน่าจะเหมาะกับลูกค้าของคุณ\n\nยินดีแนะนำสินค้าให้คุณดูครับ`\n\n  ],\n\n\n  // ===================================================\n  // 越南语\n  // ===================================================\n  vi_en: [\n\n`Xin chào,\n\nchúng tôi là nhà cung cấp trang sức bạc 925 từ Trung Quốc.\n\nChúng tôi đã xem qua cửa hàng của bạn và nghĩ rằng một số thiết kế của chúng tôi có thể phù hợp với khách hàng của bạn.\n\nChúng tôi rất vui được giới thiệu một vài sản phẩm.`,\n\n`Xin chào,\n\nchúng tôi chuyên về trang sức bạc 925 hiện đại được sản xuất tại Trung Quốc.\n\nDoanh nghiệp của bạn đã thu hút sự chú ý của chúng tôi và chúng tôi muốn giới thiệu một số mẫu.`,\n\n`Xin chào,\n\nchúng tôi sản xuất nhẫn, bông tai, mặt dây chuyền và vòng tay bằng bạc 925.\n\nMột số sản phẩm có thể phù hợp với cửa hàng của bạn.\n\nChúng tôi muốn giới thiệu một vài mẫu.`,\n\n`Xin chào,\n\nchúng tôi cung cấp trang sức bạc 925 với các thiết kế CZ hiện đại.\n\nChúng tôi muốn chia sẻ một số mẫu mới với bạn.`,\n\n`Xin chào,\n\nchúng tôi có nhiều mẫu trang sức bạc 925 hiện đại.\n\nChúng tôi nghĩ rằng một số thiết kế có thể phù hợp với khách hàng của bạn.\n\nRất vui được giới thiệu một vài mẫu.`\n\n  ],\n\n\n  // ===================================================\n  // 希伯来语\n  // ===================================================\n  he_en: [\n\n`שלום,\n\nאנחנו ספק של תכשיטי כסף 925 מסין.\n\nראינו את עסק התכשיטים שלכם ואנחנו חושבים שחלק מהעיצובים שלנו יכולים להתאים ללקוחות שלכם.\n\nנשמח להציג לכם כמה מוצרים.`,\n\n`שלום,\n\nאנחנו מתמחים בתכשיטי כסף 925 בעיצובים מודרניים המיוצרים בסין.\n\nהעסק שלכם משך את תשומת ליבנו ונשמח להציג כמה מהדגמים שלנו.`,\n\n`שלום,\n\nאנחנו מייצרים טבעות, עגילים, תליונים וצמידים מכסף 925.\n\nחלק מהמוצרים שלנו עשויים להתאים לחנות שלכם.\n\nנשמח להציג לכם כמה דגמים.`,\n\n`שלום,\n\nאנחנו מספקים תכשיטי כסף 925 עם עיצובי CZ מודרניים.\n\nנשמח לשתף אתכם בכמה מהדגמים החדשים שלנו.`,\n\n`שלום,\n\nיש לנו מגוון רחב של תכשיטי כסף 925 בעיצובים מודרניים.\n\nאנחנו חושבים שחלק מהדגמים יכולים לעניין את הלקוחות שלכם.\n\nנשמח להראות לכם כמה אפשרויות.`\n\n  ]\n\n};\n\n\n// -----------------------------------------------------\n// 3. 全球统一 English Email 模板\n// 5套\n// 不再出现 Dubai / Saudi 等写死国家\n// -----------------------------------------------------\n\nconst englishTemplates = [\n\n  {\n    subject: \"925 sterling silver jewelry for your store\",\n\n    body: `Hi,\n\nI came across your jewelry business and really liked your collection.\n\nWe produce modern 925 sterling silver jewelry in China, including rings, earrings, pendants and bracelets with CZ designs.\n\nI think some of our styles may be a good fit for your customers.\n\nWould you like me to share a few popular pieces?\n\nBest regards,\nExample Export Company\nWhatsApp: +00 0000000000\nEmail: sender@example.com`\n  },\n\n\n  {\n    subject: \"New 925 silver jewelry collection from China\",\n\n    body: `Hello,\n\nHope you are doing well.\n\nWe are a 925 sterling silver jewelry supplier from China, focusing on modern CZ jewelry for jewelry stores and online sellers.\n\nOur collection includes rings, earrings, pendants and bracelets in a variety of fashionable styles.\n\nWould you like me to send you a few product photos for reference?\n\nBest regards,\nExample Export Company\nWhatsApp: +00 0000000000\nEmail: sender@example.com`\n  },\n\n\n  {\n    subject: \"Modern 925 silver rings, earrings and more\",\n\n    body: `Hi,\n\nYour jewelry business caught my attention.\n\nWe specialize in fashionable 925 sterling silver jewelry with modern CZ designs.\n\nOur collections include:\n\n• Rings\n• Earrings\n• Pendants\n• Bracelets\n\nI thought some of our products might be a good fit for your customers.\n\nWould you be interested in seeing a few popular styles?\n\nBest regards,\nExample Export Company\nWhatsApp: +00 0000000000\nEmail: sender@example.com`\n  },\n\n\n  {\n    subject: \"925 silver jewelry supplier from China\",\n\n    body: `Hello,\n\nWe are a jewelry supplier from China producing modern 925 sterling silver jewelry for jewelry stores, wholesalers and online sellers.\n\nWe came across your business and thought there might be an opportunity to work together.\n\nOur products include rings, earrings, pendants and bracelets with modern CZ designs.\n\nWould you like me to share a few designs with you?\n\nBest regards,\nExample Export Company\nWhatsApp: +00 0000000000\nEmail: sender@example.com`\n  },\n\n\n  {\n    subject: \"Wholesale 925 sterling silver jewelry\",\n\n    body: `Hi,\n\nNice to connect with you.\n\nWe manufacture modern 925 sterling silver jewelry in China.\n\nOur products include:\n\n• Rings\n• Earrings\n• Pendants\n• Bracelets\n\nWe focus on modern designs and competitive wholesale pricing.\n\nWould you like me to send you a few product pictures for reference?\n\nBest regards,\nExample Export Company\nWhatsApp: +00 0000000000\nEmail: sender@example.com`\n  }\n\n];\n\n\n// -----------------------------------------------------\n// 4. 随机选择一套 English Email\n// -----------------------------------------------------\n\nconst englishIndex =\n  Math.floor(Math.random() * englishTemplates.length);\n\nconst selectedEnglish =\n  englishTemplates[englishIndex];\n\n\n// -----------------------------------------------------\n// 5. 随机选择本国语言开场\n// -----------------------------------------------------\n\nlet openingIndex = -1;\nlet localOpening = \"\";\n\nconst localLibrary =\n  openingLibraries[languageMode];\n\nif (\n  languageMode !== \"en\" &&\n  Array.isArray(localLibrary) &&\n  localLibrary.length > 0\n) {\n\n  openingIndex =\n    Math.floor(Math.random() * localLibrary.length);\n\n  localOpening =\n    localLibrary[openingIndex];\n\n}\n\n\n// -----------------------------------------------------\n// 6. 生成最终 Email 正文\n// -----------------------------------------------------\n\nlet finalBody;\n\n\n// 英语国家\nif (languageMode === \"en\") {\n\n  finalBody =\n    selectedEnglish.body;\n\n}\n\n\n// 有对应本国语言\nelse if (localOpening) {\n\n  finalBody =\n`${localOpening}\n\n--------------------\n\nEnglish:\n\n${selectedEnglish.body}`;\n\n}\n\n\n// 未识别语言自动回退 English\nelse {\n\n  finalBody =\n    selectedEnglish.body;\n\n}\n\n\n// -----------------------------------------------------\n// 7. 输出给 Gmail 节点\n// -----------------------------------------------------\n\n$json.email_subject =\n  selectedEnglish.subject;\n\n$json.email_body =\n  finalBody;\n\n$json.email_template =\n  `${countryKey}_${languageMode}_local_${openingIndex + 1}_en_${englishIndex + 1}`;\n\n$json.email_language =\n  languageMode;\n\n$json.email_local_template =\n  openingIndex >= 0\n    ? openingIndex + 1\n    : 0;\n\n$json.email_english_template =\n  englishIndex + 1;\n\n\n// -----------------------------------------------------\n// 8. 输出\n// -----------------------------------------------------\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -48
+      ],
+      "id": "7f04ee41-b38d-597a-b61c-e39124fc3184",
+      "name": "随机邮件模板"
+    },
+    {
+      "parameters": {
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_EMAIL_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "Email Conversation Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ ($json.email ?? '').toString().trim().toLowerCase() }}"
+            },
+            {
+              "keyName": "email_outreach_status",
+              "keyValue": "sent"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        -48
+      ],
+      "id": "edf0e90c-6cec-5e3d-b127-9d0d818d13ff",
+      "name": "检查邮箱是否已发送"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $('标准化Email').item.json.email }}"
+            },
+            {
+              "keyName": "email_outreach_status",
+              "condition": "isEmpty"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_outreach_status": "skipped_duplicate_email"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "business_type",
+              "displayName": "business_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_status",
+              "displayName": "email_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "industry_match",
+              "displayName": "industry_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_type",
+              "displayName": "phone_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_available",
+              "displayName": "whatsapp_available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_valid",
+              "displayName": "email_valid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_level",
+              "displayName": "lead_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_status",
+              "displayName": "lead_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_duplicate",
+              "displayName": "is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "crm_status",
+              "displayName": "crm_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action",
+              "displayName": "next_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action_at",
+              "displayName": "next_action_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_channel",
+              "displayName": "last_contact_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_at",
+              "displayName": "last_contact_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_outreach_status",
+              "displayName": "whatsapp_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_message",
+              "displayName": "whatsapp_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_sent_at",
+              "displayName": "whatsapp_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_followup_count",
+              "displayName": "whatsapp_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_channel",
+              "displayName": "reply_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "replied_at",
+              "displayName": "replied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "conversation_notes",
+              "displayName": "conversation_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_is_duplicate",
+              "displayName": "email_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_is_duplicate",
+              "displayName": "phone_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        -80
+      ],
+      "id": "1aff7e39-f389-53c2-901f-1d935b929fd5",
+      "name": "Update row(s)1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =====================================================\n// 全球客户语言路由 V1.0\n// 节点名称：语言路由\n// Mode：Run Once for Each Item\n//\n// 作用：\n// 根据干净客户数据表中的 country\n// 自动判断后续 WhatsApp 应该使用什么语言\n//\n// 注意：\n// 这些字段只在当前工作流运行时临时存在，\n// 不会自动写回干净客户数据表。\n// =====================================================\n\n\n// -----------------------------------------------------\n// 1. 标准化国家\n// -----------------------------------------------------\n\nconst countryRaw = String($json.country ?? \"\")\n  .normalize(\"NFKC\")\n  .trim()\n  .toLowerCase();\n\n\n// -----------------------------------------------------\n// 2. 辅助函数\n// -----------------------------------------------------\n\nfunction isCountry(...names) {\n  return names.some(name =>\n    countryRaw === String(name)\n      .normalize(\"NFKC\")\n      .trim()\n      .toLowerCase()\n  );\n}\n\n\n// -----------------------------------------------------\n// 3. 默认值\n// 无法识别的国家，一律使用英语\n// -----------------------------------------------------\n\nlet languageMode = \"en\";\nlet primaryLanguage = \"en\";\nlet secondaryLanguage = \"\";\nlet countryKey = \"other\";\nlet marketName = \"international market\";\n\n\n// =====================================================\n// 4. 阿拉伯语国家\n// Arabic + English\n// =====================================================\n\nif (\n  isCountry(\n    \"Saudi Arabia\",\n    \"KSA\",\n    \"United Arab Emirates\",\n    \"UAE\",\n    \"Qatar\",\n    \"Kuwait\",\n    \"Bahrain\",\n    \"Oman\",\n    \"Jordan\",\n    \"Iraq\",\n    \"Lebanon\",\n    \"Yemen\",\n    \"Syria\",\n    \"Palestine\",\n    \"State of Palestine\",\n    \"Egypt\"\n  )\n) {\n\n  languageMode = \"ar_en\";\n  primaryLanguage = \"ar\";\n  secondaryLanguage = \"en\";\n\n  if (isCountry(\"Saudi Arabia\", \"KSA\")) {\n    countryKey = \"saudi\";\n    marketName = \"Saudi jewelry market\";\n  }\n\n  else if (\n    isCountry(\n      \"United Arab Emirates\",\n      \"UAE\"\n    )\n  ) {\n    countryKey = \"uae\";\n    marketName = \"UAE jewelry market\";\n  }\n\n  else if (isCountry(\"Qatar\")) {\n    countryKey = \"qatar\";\n    marketName = \"Qatar jewelry market\";\n  }\n\n  else if (isCountry(\"Kuwait\")) {\n    countryKey = \"kuwait\";\n    marketName = \"Kuwait jewelry market\";\n  }\n\n  else if (isCountry(\"Bahrain\")) {\n    countryKey = \"bahrain\";\n    marketName = \"Bahrain jewelry market\";\n  }\n\n  else if (isCountry(\"Oman\")) {\n    countryKey = \"oman\";\n    marketName = \"Oman jewelry market\";\n  }\n\n  else if (isCountry(\"Egypt\")) {\n    countryKey = \"egypt\";\n    marketName = \"Egyptian jewelry market\";\n  }\n\n  else {\n    countryKey = \"arab\";\n    marketName = \"Middle East jewelry market\";\n  }\n}\n\n\n// =====================================================\n// 5. 北非阿拉伯国家\n// 目前统一 Arabic + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Morocco\",\n    \"Algeria\",\n    \"Tunisia\",\n    \"Libya\"\n  )\n) {\n\n  languageMode = \"ar_en\";\n  primaryLanguage = \"ar\";\n  secondaryLanguage = \"en\";\n  countryKey = \"north_africa\";\n  marketName = \"North African jewelry market\";\n}\n\n\n// =====================================================\n// 6. 西班牙语\n// Spanish + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Spain\",\n    \"Mexico\",\n    \"Argentina\",\n    \"Chile\",\n    \"Colombia\",\n    \"Peru\",\n    \"Ecuador\",\n    \"Uruguay\",\n    \"Paraguay\",\n    \"Bolivia\",\n    \"Venezuela\",\n    \"Costa Rica\",\n    \"Panama\",\n    \"Guatemala\",\n    \"Honduras\",\n    \"El Salvador\",\n    \"Nicaragua\",\n    \"Dominican Republic\"\n  )\n) {\n\n  languageMode = \"es_en\";\n  primaryLanguage = \"es\";\n  secondaryLanguage = \"en\";\n  countryKey = \"spanish\";\n  marketName = \"local jewelry market\";\n}\n\n\n// =====================================================\n// 7. 法语\n// French + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"France\",\n    \"Monaco\",\n    \"Senegal\",\n    \"Ivory Coast\",\n    \"Côte d'Ivoire\",\n    \"Cameroon\",\n    \"Benin\",\n    \"Togo\",\n    \"Mali\",\n    \"Niger\",\n    \"Burkina Faso\",\n    \"Guinea\"\n  )\n) {\n\n  languageMode = \"fr_en\";\n  primaryLanguage = \"fr\";\n  secondaryLanguage = \"en\";\n  countryKey = \"french\";\n  marketName = \"local jewelry market\";\n}\n\n\n// =====================================================\n// 8. 德语\n// German + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Germany\",\n    \"Austria\"\n  )\n) {\n\n  languageMode = \"de_en\";\n  primaryLanguage = \"de\";\n  secondaryLanguage = \"en\";\n  countryKey = \"german\";\n  marketName = \"local jewelry market\";\n}\n\n\n// =====================================================\n// 9. 意大利语\n// Italian + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Italy\",\n    \"San Marino\"\n  )\n) {\n\n  languageMode = \"it_en\";\n  primaryLanguage = \"it\";\n  secondaryLanguage = \"en\";\n  countryKey = \"italian\";\n  marketName = \"local jewelry market\";\n}\n\n\n// =====================================================\n// 10. 葡萄牙语\n// Portuguese + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Portugal\",\n    \"Brazil\"\n  )\n) {\n\n  languageMode = \"pt_en\";\n  primaryLanguage = \"pt\";\n  secondaryLanguage = \"en\";\n  countryKey = \"portuguese\";\n  marketName = \"local jewelry market\";\n}\n\n\n// =====================================================\n// 11. 土耳其语\n// Turkish + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Turkey\",\n    \"Türkiye\"\n  )\n) {\n\n  languageMode = \"tr_en\";\n  primaryLanguage = \"tr\";\n  secondaryLanguage = \"en\";\n  countryKey = \"turkey\";\n  marketName = \"Turkish jewelry market\";\n}\n\n\n// =====================================================\n// 12. 俄语\n// Russian + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Russia\",\n    \"Russian Federation\"\n  )\n) {\n\n  languageMode = \"ru_en\";\n  primaryLanguage = \"ru\";\n  secondaryLanguage = \"en\";\n  countryKey = \"russia\";\n  marketName = \"Russian jewelry market\";\n}\n\n\n// =====================================================\n// 13. 日语\n// Japanese + English\n// =====================================================\n\nelse if (isCountry(\"Japan\")) {\n\n  languageMode = \"ja_en\";\n  primaryLanguage = \"ja\";\n  secondaryLanguage = \"en\";\n  countryKey = \"japan\";\n  marketName = \"Japanese jewelry market\";\n}\n\n\n// =====================================================\n// 14. 韩语\n// Korean + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"South Korea\",\n    \"Republic of Korea\",\n    \"Korea\"\n  )\n) {\n\n  languageMode = \"ko_en\";\n  primaryLanguage = \"ko\";\n  secondaryLanguage = \"en\";\n  countryKey = \"korea\";\n  marketName = \"Korean jewelry market\";\n}\n\n\n// =====================================================\n// 15. 印尼语\n// Indonesian + English\n// =====================================================\n\nelse if (isCountry(\"Indonesia\")) {\n\n  languageMode = \"id_en\";\n  primaryLanguage = \"id\";\n  secondaryLanguage = \"en\";\n  countryKey = \"indonesia\";\n  marketName = \"Indonesian jewelry market\";\n}\n\n\n// =====================================================\n// 16. 泰语\n// Thai + English\n// =====================================================\n\nelse if (isCountry(\"Thailand\")) {\n\n  languageMode = \"th_en\";\n  primaryLanguage = \"th\";\n  secondaryLanguage = \"en\";\n  countryKey = \"thailand\";\n  marketName = \"Thai jewelry market\";\n}\n\n\n// =====================================================\n// 17. 越南语\n// Vietnamese + English\n// =====================================================\n\nelse if (\n  isCountry(\n    \"Vietnam\",\n    \"Viet Nam\"\n  )\n) {\n\n  languageMode = \"vi_en\";\n  primaryLanguage = \"vi\";\n  secondaryLanguage = \"en\";\n  countryKey = \"vietnam\";\n  marketName = \"Vietnamese jewelry market\";\n}\n\n\n// =====================================================\n// 18. 希伯来语\n// Hebrew + English\n// =====================================================\n\nelse if (isCountry(\"Israel\")) {\n\n  languageMode = \"he_en\";\n  primaryLanguage = \"he\";\n  secondaryLanguage = \"en\";\n  countryKey = \"israel\";\n  marketName = \"Israeli jewelry market\";\n}\n\n\n// =====================================================\n// 19. 英语优先国家\n// English only\n// =====================================================\n\nelse if (\n  isCountry(\n    \"United States\",\n    \"USA\",\n    \"US\",\n    \"United Kingdom\",\n    \"UK\",\n    \"Great Britain\",\n    \"Australia\",\n    \"New Zealand\",\n    \"Canada\",\n    \"Ireland\",\n    \"Singapore\",\n    \"India\",\n    \"Malaysia\",\n    \"Philippines\",\n    \"Netherlands\",\n    \"Belgium\",\n    \"Switzerland\",\n    \"Sweden\",\n    \"Norway\",\n    \"Denmark\",\n    \"Finland\",\n    \"South Africa\"\n  )\n) {\n\n  languageMode = \"en\";\n  primaryLanguage = \"en\";\n  secondaryLanguage = \"\";\n  countryKey = \"english\";\n  marketName = \"local jewelry market\";\n}\n\n\n// -----------------------------------------------------\n// 20. 将判断结果临时加入当前数据\n// -----------------------------------------------------\n\n$json.language_mode = languageMode;\n$json.primary_language = primaryLanguage;\n$json.secondary_language = secondaryLanguage;\n$json.country_key = countryKey;\n$json.market_name = marketName;\n$json.is_bilingual = languageMode !== \"en\";\n\n\n// -----------------------------------------------------\n// 21. 输出\n// -----------------------------------------------------\n\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -48
+      ],
+      "id": "c22f48c1-db9b-52a1-a123-19446dbfa0e2",
+      "name": "语言路由"
+    },
+    {
+      "parameters": {
+        "operation": "rowExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_EMAIL_CONVERSATIONS",
+          "mode": "list",
+          "cachedResultName": "Email Conversation Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ ($json.email ?? '').toString().trim().toLowerCase() }}"
+            },
+            {
+              "keyName": "email_outreach_status",
+              "keyValue": "sent"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        -224
+      ],
+      "id": "b230acbf-5d6e-5e2d-9ad9-5723500aceb7",
+      "name": "检查邮箱已经发送"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DATA_TABLE_CLEAN_LEADS",
+          "mode": "list",
+          "cachedResultName": "Clean Leads Table"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('读取一个客户').item.json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_outreach_status": "skipped_duplicate_email"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "business_type",
+              "displayName": "business_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_status",
+              "displayName": "email_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "industry_match",
+              "displayName": "industry_match",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_clean",
+              "displayName": "phone_clean",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_type",
+              "displayName": "phone_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_available",
+              "displayName": "whatsapp_available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_valid",
+              "displayName": "email_valid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_level",
+              "displayName": "lead_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "lead_status",
+              "displayName": "lead_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "is_duplicate",
+              "displayName": "is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "crm_status",
+              "displayName": "crm_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action",
+              "displayName": "next_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "next_action_at",
+              "displayName": "next_action_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_channel",
+              "displayName": "last_contact_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_contact_at",
+              "displayName": "last_contact_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_outreach_status",
+              "displayName": "email_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email_sent_at",
+              "displayName": "email_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_followup_count",
+              "displayName": "email_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_outreach_status",
+              "displayName": "whatsapp_outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_message",
+              "displayName": "whatsapp_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_sent_at",
+              "displayName": "whatsapp_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "whatsapp_followup_count",
+              "displayName": "whatsapp_followup_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "reply_channel",
+              "displayName": "reply_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "replied_at",
+              "displayName": "replied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "conversation_notes",
+              "displayName": "conversation_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_message_id",
+              "displayName": "email_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_thread_id",
+              "displayName": "email_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_content",
+              "displayName": "email_last_reply_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_last_reply_at",
+              "displayName": "email_last_reply_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent",
+              "displayName": "email_intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_intent_score",
+              "displayName": "email_intent_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_summary",
+              "displayName": "email_ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_ai_reply_draft",
+              "displayName": "email_ai_reply_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_draft_status",
+              "displayName": "email_draft_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email_is_duplicate",
+              "displayName": "email_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "phone_is_duplicate",
+              "displayName": "phone_is_duplicate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        -224
+      ],
+      "id": "fbcd587a-c69e-5411-95e0-b94424f2afd4",
+      "name": "标记重复邮箱"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "读取迪拜时间",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "读取迪拜时间": {
+      "main": [
+        [
+          {
+            "node": "读取一个客户",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "读取一个客户": {
+      "main": [
+        [
+          {
+            "node": "标准化Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert row": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row(s)": {
+      "main": [
+        [
+          {
+            "node": "Insert row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "标准化Email": {
+      "main": [
+        [
+          {
+            "node": "检查邮箱是否已发送",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "检查邮箱已经发送",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "随机邮件模板": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "检查邮箱是否已发送": {
+      "main": [
+        [
+          {
+            "node": "语言路由",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "语言路由": {
+      "main": [
+        [
+          {
+            "node": "随机邮件模板",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "检查邮箱已经发送": {
+      "main": [
+        [
+          {
+            "node": "标记重复邮箱",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "tags": []
+}
